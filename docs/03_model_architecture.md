@@ -1,6 +1,18 @@
 # 03. 모델 구조
 
-본 예선 제안 모델 **CAGE-CareRF GNN** (Camouflage-Aware Gated Edge Relation-Fusion GNN)과 비교 baseline 들의 구조 명세.
+본 예선 제안 모델은 **CAGE-CareRF-Lean GNN**이며, 비교 모델 **CAGE-CareRF v1 (with Gating + Custom Relations)** 및 baseline 들의 구조 명세를 함께 기록한다.
+
+## 0. FINAL = Lean 결정 근거 (Ablation 기반)
+
+200-epoch 학습 결과 모든 14개 모델을 비교했을 때, Gated Relation Fusion과 Custom Relations(R-Burst-R / R-SemSim-R / R-Behavior-R)이 PR-AUC와 Macro-F1 모두에서 음(-)의 marginal 효과를 보였다 (`w/o Gating` PR-AUC +0.011, `w/o Custom` PR-AUC +0.007 vs FINAL). 반면 Auxiliary branch loss는 강한 양(+)의 기여(PR-AUC -0.043 if removed)를, CARE filter와 Skip Connection은 미미한 양(+)의 기여를 보였다. 따라서 옵션 A에 따라 **Lean 변종**을 FINAL로 채택하고, 기존 6-relation + Gating 모델은 해석 가능성 비교 모델로 유지한다.
+
+### FINAL (Lean) 구성
+- ✅ SkipChebBranch (Skip Connection)
+- ✅ CARE Neighbor Filter (offline, label-free)
+- ✅ Auxiliary Branch Loss (Focal main + λ·aux)
+- ✅ 기본 relation 3개 (R-U-R, R-T-R, R-S-R)
+- ❌ Gated Relation Fusion → **Mean Fusion (단순 평균)**
+- ❌ Custom Relations 3개 → 보고서에 "신호는 존재하지만 (`fraud_edge_lift` R-Burst-R 1.96), 모델 통합 단계에서 충분히 활용되지 못함"으로 분석
 
 ---
 

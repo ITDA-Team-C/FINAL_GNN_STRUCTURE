@@ -1,0 +1,113 @@
+random_state: 42
+data_raw: data/raw
+data_interim: data/interim
+data_processed: data/processed
+output_dir: outputs
+sampling:
+  target_nodes: 25000
+  min_nodes: 10000
+  max_nodes: 50000
+  random_state: 42
+train_ratio: 0.64
+valid_ratio: 0.16
+test_ratio: 0.2
+feature_engineering:
+  tfidf_max_features: 50000
+  tfidf_min_df: 3
+  tfidf_max_df: 0.9
+  tfidf_ngram_range:
+  - 1
+  - 2
+  svd_components: 128
+  use_standardscaler: true
+relations:
+  rur_k: 10
+  rtr_k: 10
+  rsr_k: 10
+  burst_days: 7
+  burst_rating_diff: 1
+  semsim_k: 5
+  semsim_prod_only: true
+  behavior_k: 5
+care_filter:
+  enabled: true
+  apply: offline
+  top_k:
+    rur: 10
+    rtr: 10
+    rsr: 10
+    burst: 10
+    semsim: 5
+    behavior: 5
+  min_sim: null
+sampler:
+  enabled: false
+  note: PC-GNN inspired sampler is excluded from the main preliminary model to avoid
+    confusion with the required subgraph sampling. It may be used as an optional future
+    experiment.
+training:
+  batch_size: 1024
+  learning_rate: 0.001
+  num_epochs: 200
+  early_stopping_patience: 20
+  validation_interval: 5
+  device: cuda
+model:
+  name: cage_carerf_gnn
+  conv_type: cheb
+  in_dim_note: auto from features.npy (currently 140 = 128 svd + 12 numeric)
+  hidden_dim: 128
+  num_layers: 3
+  K: 3
+  dropout: 0.3
+  use_skip: true
+  use_gating: false
+  use_aux_loss: true
+  use_two_pass: false
+  active_relations:
+  - rur
+  - rtr
+  - rsr
+baselines:
+  mlp:
+    hidden_dim: 256
+    num_layers: 3
+    dropout: 0.3
+  gcn:
+    hidden_dim: 128
+    num_layers: 3
+    dropout: 0.3
+  graphsage:
+    hidden_dim: 128
+    num_layers: 3
+    dropout: 0.3
+  gat:
+    hidden_dim: 128
+    num_layers: 3
+    num_heads: 8
+    dropout: 0.3
+loss:
+  type: focal
+  focal_alpha: 0.75
+  focal_gamma: 2.0
+  aux_weight: 0.3
+  gate_entropy_weight: 0.01
+  class_weight: auto
+threshold:
+  selection: valid_pr_curve
+  metric: macro_f1
+evaluation:
+  metrics:
+  - pr_auc
+  - macro_f1
+  - roc_auc
+  - precision
+  - recall
+  - accuracy
+  save_predictions: true
+version: cage_carerf_lean
+version_description: 'CAGE-CareRF-Lean GNN — FINAL model (option A). Drops Gated Relation
+  Fusion (mean fusion fallback) and custom relations (R-Burst-R/R-SemSim-R/R-Behavior-R)
+  based on ablation evidence that both have negative marginal effect on PR-AUC and
+  Macro-F1. Retains: SkipChebBranch, CARE neighbor filter, Auxiliary branch loss,
+  Focal Loss.'

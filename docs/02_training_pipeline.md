@@ -136,8 +136,12 @@ python -m src.training.train --model cage_rf_gnn_cheb --config configs/v9_twosta
 python -m src.training.train --model cage_rf_gnn_cheb --config configs/cage_rf_skip_care.yaml # + CARE filter
 ```
 
-### C. CAGE-CareRF (최종 제안 모델)
+### C. CAGE-CareRF FINAL (Lean) + v1 비교 모델
 ```bash
+# FINAL — Gating off + 기본 relation 3개 + Skip + CARE + Aux
+python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf_lean.yaml
+
+# v1 비교 모델 — with Gating + Custom Relations 6개
 python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf.yaml
 ```
 

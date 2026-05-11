@@ -42,9 +42,11 @@ python -m src.preprocessing.feature_engineering
 python -m src.graph.build_relations
 python -m src.graph.relation_quality
 
-# 4) 학습 (예: CAGE-CareRF 최종 모델)
-python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf.yaml
+# 4) 학습 (FINAL 모델: CAGE-CareRF-Lean)
+python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf_lean.yaml
 ```
+
+> **FINAL 모델은 `cage_carerf_lean.yaml`을 사용합니다.** Ablation 결과 Gated Fusion과 Custom Relations가 PR-AUC/Macro-F1에 음(-)의 marginal 효과를 보여서, **mean fusion + 기본 relation 3개(R-U-R, R-T-R, R-S-R) + Skip + CARE filter + Aux Loss** 조합을 최종 모델로 선택했습니다. 기존 `cage_carerf.yaml` (with Gating + Custom)은 해석 가능성 비교 모델로 유지됩니다.
 
 ---
 
@@ -70,9 +72,13 @@ python -m src.training.train --model cage_rf_gnn_cheb --config configs/v9_twosta
 python -m src.training.train --model cage_rf_gnn_cheb --config configs/cage_rf_skip_care.yaml   # + CARE filter
 ```
 
-### C. CAGE-CareRF FINAL (제안 모델)
+### C. CAGE-CareRF FINAL (제안 모델 — Lean)
 
 ```bash
+# FINAL (옵션 A) — Lean: Gating off + 기본 relation 3개만 + Skip + CARE + Aux
+python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf_lean.yaml
+
+# (선택) 비교 모델 v1 — with Gating + Custom relations 6개
 python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf.yaml
 ```
 
@@ -102,7 +108,8 @@ for cfg in default v8_skip v9_twostage cage_rf_skip_care; do
   python -m src.training.train --model cage_rf_gnn_cheb --config configs/$cfg.yaml
 done
 
-# C. CAGE-CareRF FINAL (1)
+# C. CAGE-CareRF FINAL (Lean) + v1 비교 모델
+python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf_lean.yaml
 python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf.yaml
 
 # D. Ablations (5)
@@ -126,7 +133,8 @@ ls -la outputs/cage_rf_gnn/metrics_*.json outputs/benchmark/cheb/metrics_*.json
 | 6 | CAGE-RF Skip | `outputs/benchmark/cheb/metrics_cage_rf_gnn_cheb_v8_skip.json` |
 | 7 | CAGE-RF Refine | `outputs/benchmark/cheb/metrics_cage_rf_gnn_cheb_v9_twostage.json` |
 | 8 | CAGE-RF + CARE | `outputs/benchmark/cheb/metrics_cage_rf_gnn_cheb_cage_rf_skip_care.json` |
-| 9 | **CAGE-CareRF FINAL** | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_cage_carerf_v1.json` |
+| 9 | **CAGE-CareRF FINAL (Lean)** | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_cage_carerf_lean.json` |
+| 9b | CAGE-CareRF v1 (with Gating/Custom, 비교용) | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_cage_carerf_v1.json` |
 | 10 | w/o CARE | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_ablation_no_care.json` |
 | 11 | w/o Skip | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_ablation_no_skip.json` |
 | 12 | w/o Gating | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_ablation_no_gating.json` |
@@ -161,27 +169,29 @@ ls -la outputs/cage_rf_gnn/metrics_*.json outputs/benchmark/cheb/metrics_*.json
 
 ---
 
-## 모델 개요
+## 모델 개요 (FINAL = Lean)
 
 ```text
 Reviews (N, 140)
     │
     ▼   [offline] CARE neighbor filter (feature cosine top-k, label-free)
-6 relation graphs
+3 basic relation graphs (R-U-R, R-T-R, R-S-R)        ← ablation 후 custom 3개 제외
     │
     ▼
-SkipChebBranch ×6 (per relation)        ChebConv K=3, residual skip
+SkipChebBranch ×3 (per relation)        ChebConv K=3, residual skip
     │
-    ▼   stack → (N, 6, 128)
-GatedRelationFusion (softmax α)         per-node α
+    ▼   stack → (N, 3, 128)
+Mean Fusion (no gating)                  ← ablation 후 gating 제외
     │
     ▼   (N, 128)
 Projection → Main Classifier            logit
-            + 6 × Auxiliary heads        aux_logits
+            + 3 × Auxiliary heads        aux_logits
 
 Loss = Focal(logit, y) + 0.3 × mean_r BCE(aux_logit_r, y)
 threshold @ valid PR-curve → Test 1회 평가 → PR-AUC / Macro-F1
 ```
+
+비교 모델 v1 (with Gating + Custom Relations 6개)은 동일 코드(`cage_carerf_gnn.py`)의 토글로 학습되며, 보고서에서 해석 가능성 trade-off 분석용으로 사용됩니다.
 
 자세한 구조는 [`docs/03_model_architecture.md`](docs/03_model_architecture.md).
 
