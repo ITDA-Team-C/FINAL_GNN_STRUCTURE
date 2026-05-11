@@ -69,6 +69,8 @@ model:
   - rtr
   - rsr
   - burst
+  - semsim
+  - behavior
 baselines:
   mlp:
     hidden_dim: 256
@@ -106,6 +108,5 @@ evaluation:
   - recall
   - accuracy
   save_predictions: true
-version: cage_carerf_lean_4
-version_description: 'Lean-4: basic 3 + Burst (strongest custom, lift 1.96). Gating
-  off.'
+version: cage_carerf_lean_6
+version_description: 'Lean-6: all 6 relations. Gating off. Equivalent to ablation_no_gating.'

@@ -72,15 +72,20 @@ python -m src.training.train --model cage_rf_gnn_cheb --config configs/v9_twosta
 python -m src.training.train --model cage_rf_gnn_cheb --config configs/cage_rf_skip_care.yaml   # + CARE filter
 ```
 
-### C. CAGE-CareRF FINAL (제안 모델 — Lean)
+### C. CAGE-CareRF FINAL 후보 (3개 Lean 변종)
 
 ```bash
-# FINAL (옵션 A) — Lean: Gating off + 기본 relation 3개만 + Skip + CARE + Aux
+# Lean-4: basic 3 + R-Burst-R         (규정 충족 minimal, fraud_edge_lift 1.96)
 python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf_lean.yaml
 
-# (선택) 비교 모델 v1 — with Gating + Custom relations 6개
-python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf.yaml
+# Lean-5: basic 3 + R-Burst-R + R-SemSim-R  (noisy한 Behavior만 제외)
+python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf_lean_5.yaml
+
+# Lean-6: 6 relations all              (ablation_no_gating과 동일)
+python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf_lean_6.yaml
 ```
+
+> 모든 Lean 변종은 `gating=off` + `Skip=on` + `Aux=on` + `CARE=on`. 차이는 active_relations 수만. 결과 비교 후 FINAL 1개 결정.
 
 ### D. Ablation 5종 (FINAL에서 한 항목씩 제거)
 
@@ -128,11 +133,12 @@ for cfg in default v8_skip v9_twostage cage_rf_skip_care; do
   python -m src.training.train --model cage_rf_gnn_cheb --config configs/$cfg.yaml
 done
 python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf_lean.yaml
-python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf.yaml
+python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf_lean_5.yaml
+python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf_lean_6.yaml
 for abl in no_care no_skip no_gating no_aux no_custom; do
   python -m src.training.train --model cage_carerf_gnn --config configs/ablation_$abl.yaml
 done
-echo "ALL 15 MODELS DONE"
+echo "ALL 16 MODELS DONE"
 ls -la outputs/cage_rf_gnn/metrics_*.json outputs/benchmark/cheb/metrics_*.json
 ```
 
@@ -148,8 +154,9 @@ ls -la outputs/cage_rf_gnn/metrics_*.json outputs/benchmark/cheb/metrics_*.json
 | 6 | CAGE-RF Skip | `outputs/benchmark/cheb/metrics_cage_rf_gnn_cheb_v8_skip.json` |
 | 7 | CAGE-RF Refine | `outputs/benchmark/cheb/metrics_cage_rf_gnn_cheb_v9_twostage.json` |
 | 8 | CAGE-RF + CARE | `outputs/benchmark/cheb/metrics_cage_rf_gnn_cheb_cage_rf_skip_care.json` |
-| 9 | **CAGE-CareRF FINAL (Lean)** | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_cage_carerf_lean.json` |
-| 9b | CAGE-CareRF v1 (with Gating/Custom, 비교용) | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_cage_carerf_v1.json` |
+| 9a | **CAGE-CareRF Lean-4** (basic + Burst) | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_cage_carerf_lean_4.json` |
+| 9b | **CAGE-CareRF Lean-5** (basic + Burst + SemSim) | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_cage_carerf_lean_5.json` |
+| 9c | **CAGE-CareRF Lean-6** (all 6) | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_cage_carerf_lean_6.json` |
 | 10 | w/o CARE | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_ablation_no_care.json` |
 | 11 | w/o Skip | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_ablation_no_skip.json` |
 | 12 | w/o Gating | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_ablation_no_gating.json` |

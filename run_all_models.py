@@ -25,10 +25,15 @@ PLAN = [
     ("cage_rf",   "cage_rf_gnn_cheb", "configs/v8_skip.yaml",                "CAGE-RF Skip (v8)"),
     ("cage_rf",   "cage_rf_gnn_cheb", "configs/v9_twostage.yaml",            "CAGE-RF Refine (v9)"),
     ("cage_rf",   "cage_rf_gnn_cheb", "configs/cage_rf_skip_care.yaml",      "CAGE-RF + CARE"),
-    # C. CAGE-CareRF FINAL + v1
-    ("carerf",    "cage_carerf_gnn",  "configs/cage_carerf_lean.yaml",       "CAGE-CareRF FINAL (Lean)"),
-    ("carerf",    "cage_carerf_gnn",  "configs/cage_carerf.yaml",            "CAGE-CareRF v1 (with Gating/Custom)"),
-    # D. Ablations (CAGE-CareRF v1 base)
+    # C. CAGE-CareRF FINAL candidates (3 Lean variants)
+    #    Lean-4: basic 3 + Burst       (rule-compliant minimal, lift 1.96)
+    #    Lean-5: basic 3 + Burst+SemSim (drop noisy Behavior, lift 0.73)
+    #    Lean-6: 6 relations all       (equivalent to ablation_no_gating)
+    ("carerf",    "cage_carerf_gnn",  "configs/cage_carerf_lean.yaml",       "CAGE-CareRF Lean-4 (basic + Burst)"),
+    ("carerf",    "cage_carerf_gnn",  "configs/cage_carerf_lean_5.yaml",     "CAGE-CareRF Lean-5 (basic + Burst + SemSim)"),
+    ("carerf",    "cage_carerf_gnn",  "configs/cage_carerf_lean_6.yaml",     "CAGE-CareRF Lean-6 (all 6 relations)"),
+    # D. Ablations — base = "with Gating + 6 relations + Skip + Aux + CARE"
+    #    (equivalent to #8 CAGE-RF + CARE under cage_carerf_gnn class)
     ("ablation",  "cage_carerf_gnn",  "configs/ablation_no_care.yaml",       "w/o CARE filter"),
     ("ablation",  "cage_carerf_gnn",  "configs/ablation_no_skip.yaml",       "w/o Skip"),
     ("ablation",  "cage_carerf_gnn",  "configs/ablation_no_gating.yaml",     "w/o Gating"),
