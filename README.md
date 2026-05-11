@@ -245,6 +245,126 @@ rur 97.5% · rtr 98.3% · rsr 65.2% · burst 99.7% · semsim 69.8% · behavior 4
 
 ---
 
-## 10. 라이센스 / 팀
+## 10. 참고용 데이터셋 (Amazon / YelpChi)
+
+YelpZip이 본 연구의 **메인 데이터셋**이며, **Amazon · YelpChi**는 모델 일반화 검증을 위한 **참고용 cross-dataset 실험** 입니다. 각각 독립된 폴더(`amazon/`, `yelchi/`)에 있으며 메인 코드(`src/`, `configs/`, `data/`)와는 완전히 분리되어 있습니다.
+
+데이터 형식: **CARE-GNN / PC-GNN 표준 `.mat`** (3 relations 이미 처리됨).
+
+### 10.1 데이터 준비 (gitignored, 사용자가 직접 추가)
+
+```bash
+# CARE-GNN repo에서 .mat 받기
+git clone https://github.com/YingtongDou/CARE-GNN.git /tmp/CARE-GNN
+unzip /tmp/CARE-GNN/data/Amazon.zip   -d amazon/data/
+unzip /tmp/CARE-GNN/data/YelpChi.zip  -d yelchi/data/
+```
+
+배치 후 경로:
+- `amazon/data/Amazon.mat`
+- `yelchi/data/YelpChi.mat`
+
+### 10.2 Amazon — 7개 모델 학습
+
+#### 한 번에 (launcher)
+```bash
+python run_all_amazon.py                       # 7개 모두
+python run_all_amazon.py --only cage_carerf    # 1개만
+python run_all_amazon.py --mat-path /any/path/Amazon.mat
+python run_all_amazon.py --epochs 100
+python run_all_amazon.py --continue-on-error
+python run_all_amazon.py --dry-run
+```
+
+#### 모델별 직접 실행
+```bash
+python -m amazon.src.train --model mlp                 --mat-path amazon/data/Amazon.mat
+python -m amazon.src.train --model gcn                 --mat-path amazon/data/Amazon.mat
+python -m amazon.src.train --model gat                 --mat-path amazon/data/Amazon.mat
+python -m amazon.src.train --model graphsage           --mat-path amazon/data/Amazon.mat
+python -m amazon.src.train --model cage_carerf         --mat-path amazon/data/Amazon.mat
+python -m amazon.src.train --model cage_carerf_no_care --mat-path amazon/data/Amazon.mat
+python -m amazon.src.train --model cage_carerf_no_aux  --mat-path amazon/data/Amazon.mat
+```
+
+산출:
+```
+amazon/outputs/metrics_mlp.json
+amazon/outputs/metrics_gcn.json
+amazon/outputs/metrics_gat.json
+amazon/outputs/metrics_graphsage.json
+amazon/outputs/metrics_cage_carerf.json          ← Amazon FINAL
+amazon/outputs/metrics_cage_carerf_no_care.json
+amazon/outputs/metrics_cage_carerf_no_aux.json
+```
+
+Amazon `.mat` 키: `features (N,25)`, `label`, `net_upu`, `net_usu`, `net_uvu` (3 relations).
+
+### 10.3 YelpChi — 7개 모델 학습
+
+#### 한 번에 (launcher)
+```bash
+python run_all_yelchi.py                       # 7개 모두
+python run_all_yelchi.py --only cage_carerf    # 1개만
+python run_all_yelchi.py --mat-path /any/path/YelpChi.mat
+python run_all_yelchi.py --epochs 100
+python run_all_yelchi.py --continue-on-error
+python run_all_yelchi.py --dry-run
+```
+
+#### 모델별 직접 실행
+```bash
+python -m yelchi.src.train --model mlp                 --mat-path yelchi/data/YelpChi.mat
+python -m yelchi.src.train --model gcn                 --mat-path yelchi/data/YelpChi.mat
+python -m yelchi.src.train --model gat                 --mat-path yelchi/data/YelpChi.mat
+python -m yelchi.src.train --model graphsage           --mat-path yelchi/data/YelpChi.mat
+python -m yelchi.src.train --model cage_carerf         --mat-path yelchi/data/YelpChi.mat
+python -m yelchi.src.train --model cage_carerf_no_care --mat-path yelchi/data/YelpChi.mat
+python -m yelchi.src.train --model cage_carerf_no_aux  --mat-path yelchi/data/YelpChi.mat
+```
+
+산출:
+```
+yelchi/outputs/metrics_mlp.json
+yelchi/outputs/metrics_gcn.json
+yelchi/outputs/metrics_gat.json
+yelchi/outputs/metrics_graphsage.json
+yelchi/outputs/metrics_cage_carerf.json          ← YelpChi FINAL
+yelchi/outputs/metrics_cage_carerf_no_care.json
+yelchi/outputs/metrics_cage_carerf_no_aux.json
+```
+
+YelpChi `.mat` 키: `features (N,32)`, `label`, `net_rur`, `net_rtr`, `net_rsr` (3 relations).
+
+### 10.4 두 데이터셋 모두 한 번에 (전체 14개 모델)
+
+```bash
+python run_all_amazon.py && python run_all_yelchi.py
+```
+
+또는:
+```bash
+for ds in amazon yelchi; do
+  python run_all_${ds}.py --continue-on-error
+done
+```
+
+### 10.5 메인 YelpZip과의 비교
+
+| 측면 | YelpZip (메인) | Amazon (참고) | YelpChi (참고) |
+|---|---|---|---|
+| Relations | 6 (basic 3 + custom 3) | 3 (UPU/USU/UVU) | 3 (RUR/RTR/RSR) |
+| Node 단위 | Review | User | Review |
+| Feature | 140D (TF-IDF+numeric, 직접 생성) | 25D (.mat 제공) | 32D (.mat 제공) |
+| 전처리 | 7단계 파이프라인 | `.mat` load만 | `.mat` load만 |
+| 학습 모델 수 | **16개** | **7개** | **7개** |
+
+본 연구 모델의 핵심은 YelpZip 16모델 비교이며, Amazon/YelpChi는 동일 모델(CAGE-CareRF)이 **타 fraud dataset에서도 작동**하는지 검증하는 보조 실험입니다.
+
+자세한 사항: [`amazon/README.md`](amazon/README.md), [`yelchi/README.md`](yelchi/README.md).
+
+---
+
+## 11. 라이센스 / 팀
 
 ITDA Team C — 2026 공모전 예선 제출용. 외부 reference 라이브러리(CARE-GNN, PC-GNN, DGFraud)는 본 repo에 포함되지 않으며, 각 원본 라이센스에 따릅니다.
