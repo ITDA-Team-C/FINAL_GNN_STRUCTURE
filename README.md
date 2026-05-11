@@ -92,32 +92,47 @@ python -m src.training.train --model cage_carerf_gnn --config configs/ablation_n
 python -m src.training.train --model cage_carerf_gnn --config configs/ablation_no_custom.yaml    # 기본 relation 3개만 (Burst/SemSim/Behavior 제거)
 ```
 
-### 한 번에 돌리는 스크립트 (Linux/Mac)
+### 한 번에 돌리는 스크립트
+
+**가장 간단한 방법 — 동봉된 `run_all_models.py` 사용:**
+
+```bash
+# 전체 15개 모델 순차 학습 (A + B + C + D)
+python run_all_models.py
+
+# 일부 그룹만 (예: ablation만)
+python run_all_models.py --only ablation
+python run_all_models.py --only baselines,carerf
+
+# 일부 그룹 제외
+python run_all_models.py --skip baselines
+
+# 중간에 1개 실패해도 계속 (다른 모델은 진행)
+python run_all_models.py --continue-on-error
+
+# 명령만 확인 (실행 안 함)
+python run_all_models.py --dry-run
+```
+
+스크립트는 끝에 모델별 exit code, 소요 시간, 결과 파일 목록을 요약 출력합니다.
+
+**또는 inline bash:**
 
 ```bash
 #!/bin/bash
 set -e
-
-# A. Baselines (4)
 for m in mlp gcn gat graphsage; do
   python -m src.training.train --model $m --config configs/default.yaml
 done
-
-# B. CAGE-RF family (4)
 for cfg in default v8_skip v9_twostage cage_rf_skip_care; do
   python -m src.training.train --model cage_rf_gnn_cheb --config configs/$cfg.yaml
 done
-
-# C. CAGE-CareRF FINAL (Lean) + v1 비교 모델
 python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf_lean.yaml
 python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf.yaml
-
-# D. Ablations (5)
 for abl in no_care no_skip no_gating no_aux no_custom; do
   python -m src.training.train --model cage_carerf_gnn --config configs/ablation_$abl.yaml
 done
-
-echo "ALL 14 MODELS DONE"
+echo "ALL 15 MODELS DONE"
 ls -la outputs/cage_rf_gnn/metrics_*.json outputs/benchmark/cheb/metrics_*.json
 ```
 
