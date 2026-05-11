@@ -441,6 +441,12 @@ def train(model_name, config_path):
         # 기본 CAGE-RF: outputs/cage_rf_gnn/
         output_dir = os.path.join("outputs", "cage_rf_gnn")
         version = config.get("version", "v2")
+    elif model_name == "cage_carerf_gnn":
+        # CAGE-CareRF (FINAL + ablations): 같은 모델·다른 config가 서로
+        # 덮어쓰지 않도록 config의 version 키를 파일명에 합친다.
+        output_dir = os.path.join("outputs", "cage_rf_gnn")
+        version_suffix = config.get("version", "cage_carerf_v1")
+        version = f"{model_name}_{version_suffix}"
     else:
         # Baseline 모델들: outputs/cage_rf_gnn/
         output_dir = os.path.join("outputs", "cage_rf_gnn")
