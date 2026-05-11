@@ -46,7 +46,94 @@ python -m src.graph.relation_quality
 python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf.yaml
 ```
 
-전체 14개 모델 실행 명령은 [`docs/02_training_pipeline.md`](docs/02_training_pipeline.md) §3 참조.
+---
+
+## 전체 14개 모델 학습 명령
+
+실행 위치: repo 루트(`FINAL_GNN_STRUCTURE/`). 모든 산출물은 자동으로 다른 파일에 저장되어 덮어쓰기 위험 없음.
+
+### A. Baseline 4종 (edge = union of 6 relations)
+
+```bash
+python -m src.training.train --model mlp        --config configs/default.yaml
+python -m src.training.train --model gcn        --config configs/default.yaml
+python -m src.training.train --model gat        --config configs/default.yaml
+python -m src.training.train --model graphsage  --config configs/default.yaml
+```
+
+### B. CAGE-RF 계열 4종 (multi-relation GNN)
+
+```bash
+python -m src.training.train --model cage_rf_gnn_cheb --config configs/default.yaml             # Base
+python -m src.training.train --model cage_rf_gnn_cheb --config configs/v8_skip.yaml             # + Skip
+python -m src.training.train --model cage_rf_gnn_cheb --config configs/v9_twostage.yaml         # + Two-Stage Refine
+python -m src.training.train --model cage_rf_gnn_cheb --config configs/cage_rf_skip_care.yaml   # + CARE filter
+```
+
+### C. CAGE-CareRF FINAL (제안 모델)
+
+```bash
+python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf.yaml
+```
+
+### D. Ablation 5종 (FINAL에서 한 항목씩 제거)
+
+```bash
+python -m src.training.train --model cage_carerf_gnn --config configs/ablation_no_care.yaml      # w/o CARE filter
+python -m src.training.train --model cage_carerf_gnn --config configs/ablation_no_skip.yaml      # w/o Skip
+python -m src.training.train --model cage_carerf_gnn --config configs/ablation_no_gating.yaml    # w/o Gated Fusion (mean fallback)
+python -m src.training.train --model cage_carerf_gnn --config configs/ablation_no_aux.yaml       # w/o Aux Loss
+python -m src.training.train --model cage_carerf_gnn --config configs/ablation_no_custom.yaml    # 기본 relation 3개만 (Burst/SemSim/Behavior 제거)
+```
+
+### 한 번에 돌리는 스크립트 (Linux/Mac)
+
+```bash
+#!/bin/bash
+set -e
+
+# A. Baselines (4)
+for m in mlp gcn gat graphsage; do
+  python -m src.training.train --model $m --config configs/default.yaml
+done
+
+# B. CAGE-RF family (4)
+for cfg in default v8_skip v9_twostage cage_rf_skip_care; do
+  python -m src.training.train --model cage_rf_gnn_cheb --config configs/$cfg.yaml
+done
+
+# C. CAGE-CareRF FINAL (1)
+python -m src.training.train --model cage_carerf_gnn --config configs/cage_carerf.yaml
+
+# D. Ablations (5)
+for abl in no_care no_skip no_gating no_aux no_custom; do
+  python -m src.training.train --model cage_carerf_gnn --config configs/ablation_$abl.yaml
+done
+
+echo "ALL 14 MODELS DONE"
+ls -la outputs/cage_rf_gnn/metrics_*.json outputs/benchmark/cheb/metrics_*.json
+```
+
+### 산출 파일 매핑표
+
+| # | 모델 | 결과 파일 |
+|---|---|---|
+| 1 | MLP | `outputs/cage_rf_gnn/metrics_mlp.json` |
+| 2 | GCN | `outputs/cage_rf_gnn/metrics_gcn.json` |
+| 3 | GAT | `outputs/cage_rf_gnn/metrics_gat.json` |
+| 4 | GraphSAGE | `outputs/cage_rf_gnn/metrics_graphsage.json` |
+| 5 | CAGE-RF Base | `outputs/benchmark/cheb/metrics_cage_rf_gnn_cheb_v2.json` |
+| 6 | CAGE-RF Skip | `outputs/benchmark/cheb/metrics_cage_rf_gnn_cheb_v8_skip.json` |
+| 7 | CAGE-RF Refine | `outputs/benchmark/cheb/metrics_cage_rf_gnn_cheb_v9_twostage.json` |
+| 8 | CAGE-RF + CARE | `outputs/benchmark/cheb/metrics_cage_rf_gnn_cheb_cage_rf_skip_care.json` |
+| 9 | **CAGE-CareRF FINAL** | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_cage_carerf_v1.json` |
+| 10 | w/o CARE | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_ablation_no_care.json` |
+| 11 | w/o Skip | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_ablation_no_skip.json` |
+| 12 | w/o Gating | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_ablation_no_gating.json` |
+| 13 | w/o Aux | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_ablation_no_aux.json` |
+| 14 | w/o Custom | `outputs/cage_rf_gnn/metrics_cage_carerf_gnn_ablation_no_custom.json` |
+
+더 자세한 설명(7단계 파이프라인, leakage 차단, 트러블슈팅)은 [`docs/02_training_pipeline.md`](docs/02_training_pipeline.md) 참조.
 
 ---
 
