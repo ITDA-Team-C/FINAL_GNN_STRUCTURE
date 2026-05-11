@@ -1,0 +1,108 @@
+# GNN-based Fraud Detection Configuration
+
+# Random seed
+random_state: 42
+
+# Data paths
+data_raw: "data/raw"
+data_interim: "data/interim"
+data_processed: "data/processed"
+output_dir: "outputs"
+
+# Sampling config
+sampling:
+  target_nodes: 25000
+  min_nodes: 10000
+  max_nodes: 50000
+  random_state: 42
+
+# Train/Valid/Test split
+train_ratio: 0.64
+valid_ratio: 0.16
+test_ratio: 0.20
+
+# Feature Engineering
+feature_engineering:
+  tfidf_max_features: 50000
+  tfidf_min_df: 3
+  tfidf_max_df: 0.9
+  tfidf_ngram_range: [1, 2]
+  svd_components: 128
+  use_standardscaler: true
+
+# Relation edge construction
+relations:
+  rur_k: 10
+  rtr_k: 10
+  rsr_k: 10
+  burst_days: 7
+  burst_rating_diff: 1
+  semsim_k: 5
+  semsim_prod_only: true
+  behavior_k: 5
+
+# Model training (GPU optimized)
+training:
+  batch_size: 1024
+  learning_rate: 0.001
+  num_epochs: 200
+  early_stopping_patience: 20
+  validation_interval: 5
+  device: "cuda"  # cuda 자동 감지, CPU fallback
+
+# GNN model config (GPU optimized)
+model:
+  hidden_dim: 128
+  num_layers: 3
+  dropout: 0.3
+  activation: "relu"
+
+# Baseline models (GPU optimized)
+baselines:
+  mlp:
+    hidden_dim: 256
+    num_layers: 3
+    dropout: 0.3
+  gcn:
+    hidden_dim: 128
+    num_layers: 3
+    dropout: 0.3
+  graphsage:
+    hidden_dim: 128
+    num_layers: 3
+    dropout: 0.3
+  gat:
+    hidden_dim: 128
+    num_layers: 3
+    num_heads: 8
+    dropout: 0.3
+
+# CAGE-RF GNN specific (GPU optimized)
+cage_rf:
+  hidden_dim: 128
+  num_layers: 3
+  dropout: 0.3
+  use_gating: true
+  gating_activation: "softmax"
+
+# Loss and evaluation
+loss:
+  type: "focal"
+  pos_weight_ratio: null  # auto-calculated from data
+  focal_alpha: 0.75
+  focal_gamma: 2.0
+  aux_weight: 0.3
+
+evaluation:
+  metrics:
+    - "pr_auc"
+    - "macro_f1"
+    - "roc_auc"
+    - "precision"
+    - "recall"
+    - "accuracy"
+  save_predictions: true
+  save_embeddings: true
+
+version: "v2"
+version_description: "Baseline: Focal Loss + Auxiliary Loss"
