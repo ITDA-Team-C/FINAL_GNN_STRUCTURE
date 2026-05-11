@@ -24,8 +24,9 @@ python -m venv .venv && source .venv/bin/activate
 
 # 1) 의존성
 pip install -r requirements.txt
-# (GPU) PyG 가속 라이브러리 — CUDA 버전에 맞게:
-# pip install pyg-lib torch-scatter torch-sparse \
+# torch-geometric 2.7은 ChebConv/GCNConv/GATConv/SAGEConv를 자체 구현하므로
+# pyg-lib 없이도 학습 가능. 추가 가속이 필요하면 (Linux + CUDA 12.1 예시):
+# pip install torch-scatter torch-sparse \
 #   -f https://data.pyg.org/whl/torch-2.11.0+cu121.html
 
 # 2) 데이터 배치 (repo에는 포함되지 않음)

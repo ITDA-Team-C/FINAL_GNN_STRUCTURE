@@ -32,19 +32,19 @@ source .venv/bin/activate          # Linux/Mac
 pip install -r requirements.txt
 ```
 
-### 3.2 torch-geometric 가속 라이브러리 (GPU 학습 권장)
+### 3.2 (선택) torch-geometric 가속 라이브러리
 
-`torch-geometric` 단독으로는 ChebConv 등 일부 모듈이 느립니다. CUDA/torch 버전에 맞춰 `pyg-lib`, `torch-scatter`, `torch-sparse`를 설치합니다.
+`torch-geometric 2.7`은 ChebConv / GCNConv / GATConv / SAGEConv를 자체 구현하므로 **pyg-lib 없이도 우리 파이프라인은 그대로 동작**합니다. 본격적으로 큰 그래프에서 추가 속도를 원할 때만 `torch-scatter` / `torch-sparse`를 설치하세요. `pyg-lib`는 (특히 torch 2.11 + Windows) wheel이 없는 경우가 많아 권장하지 않습니다.
 
-GPU (예: CUDA 12.1):
+Linux + CUDA 12.1 (검증 환경):
 ```bash
-pip install pyg-lib torch-scatter torch-sparse \
+pip install torch-scatter torch-sparse \
   -f https://data.pyg.org/whl/torch-2.11.0+cu121.html
 ```
 
-CPU 전용:
+CPU 전용 (테스트용):
 ```bash
-pip install pyg-lib torch-scatter torch-sparse \
+pip install torch-scatter torch-sparse \
   -f https://data.pyg.org/whl/torch-2.11.0+cpu.html
 ```
 
@@ -52,6 +52,9 @@ pip install pyg-lib torch-scatter torch-sparse \
 ```bash
 nvidia-smi | head -3
 ```
+
+### 3.3 (만약 pyg-lib 설치 에러를 만났다면)
+무시하고 진행하세요. 본 모델이 사용하는 모든 conv layer는 `torch-geometric` 본체에 포함되어 있어 pyg-lib 없이 작동합니다.
 
 ---
 
@@ -161,8 +164,9 @@ python -m src.training.train --model cage_carerf_gnn --config configs/ablation_n
 
 | 증상 | 원인 | 해결 |
 |---|---|---|
-| `ImportError: torch_geometric` | PyG 미설치 | §3.2 참조 |
-| ChebConv 매우 느림 (CPU에서 epoch 당 수분) | pyg-lib/torch-sparse 미설치 | §3.2 (GPU 가속) |
+| `ImportError: torch_geometric` | PyG 미설치 | `pip install torch-geometric==2.7.0` |
+| `pyg-lib 버전 없음` (No matching distribution) | torch 2.11 / 일부 OS에 wheel 부재 | **무시 가능**. torch-geometric 2.7만으로 작동 (§3.3) |
+| ChebConv 매우 느림 (CPU에서 epoch 당 수분) | torch-sparse 가속 미설치 | §3.2 또는 GPU 사용 |
 | `UnicodeDecodeError: 'cp949'` (Windows) | yaml load 인코딩 | `open(yaml_path, encoding='utf-8')` 적용 (코드에는 이미 반영) |
 | `KeyError: 'review_id'` 등 컬럼 누락 | yelp_zip.csv 스키마 불일치 | `load_yelpzip.py`에 컬럼 rename 추가 |
 | `CUDA out of memory` (50k node) | hidden_dim/num_layers 큼 | config `model.hidden_dim` 64로 낮춤 |

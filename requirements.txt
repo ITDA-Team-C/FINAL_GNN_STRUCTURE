@@ -5,14 +5,14 @@ scikit-learn==1.8.0
 pyyaml==6.0.2
 scipy==1.17.1
 
-# Deep learning (GPU recommended)
+# Deep learning (GPU recommended; Linux + CUDA 12.x verified)
 torch==2.11.0
 torch-geometric==2.7.0
 
-# torch-geometric optional accelerators (install matching your CUDA/torch).
-# Example for torch 2.11 + CUDA 12.1:
-#   pip install pyg-lib torch-scatter torch-sparse \
+# torch-geometric 2.7 ships in-tree implementations of ChebConv / GCNConv /
+# GATConv / SAGEConv that work WITHOUT pyg-lib or torch-scatter/torch-sparse.
+# If you want extra speed on huge graphs, install accelerators that match
+# your torch+CUDA combo (Linux/CUDA 12.1 example):
+#   pip install torch-scatter torch-sparse \
 #     -f https://data.pyg.org/whl/torch-2.11.0+cu121.html
-# For CPU-only:
-#   pip install pyg-lib torch-scatter torch-sparse \
-#     -f https://data.pyg.org/whl/torch-2.11.0+cpu.html
+# These are OPTIONAL — the main pipeline runs fine without them.
