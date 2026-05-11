@@ -55,13 +55,34 @@ class GCN(_BaseGNN):
         super().__init__(GCNConv, input_dim, hidden_dim, num_layers, dropout)
 
 
-class GAT(_BaseGNN):
+class GAT(nn.Module):
+    """GAT cannot reuse _BaseGNN because GATConv expands output to head_dim*heads.
+    We need each layer's in_channels = hidden_dim (= previous out), not head_dim.
+    """
+
     def __init__(self, input_dim, hidden_dim=128, num_layers=3, num_heads=8, dropout=0.3):
+        super().__init__()
         head_dim = hidden_dim // num_heads
-        super().__init__(
-            GATConv, input_dim, head_dim, num_layers, dropout,
-            heads=num_heads, concat=True,
+        self.convs = nn.ModuleList()
+        # first layer: input_dim -> head_dim * heads = hidden_dim
+        self.convs.append(GATConv(input_dim, head_dim, heads=num_heads, concat=True))
+        # subsequent layers: hidden_dim -> head_dim * heads = hidden_dim
+        for _ in range(num_layers - 1):
+            self.convs.append(GATConv(hidden_dim, head_dim, heads=num_heads, concat=True))
+        self.classifier = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(), nn.Dropout(dropout),
+            nn.Linear(hidden_dim, 1),
         )
+        self.dropout = dropout
+        self._cached_edge_index = None
+
+    def forward(self, x, edge_index_dict):
+        if self._cached_edge_index is None:
+            self._cached_edge_index = _union_edge_index(edge_index_dict)
+        ei = self._cached_edge_index
+        for conv in self.convs:
+            x = F.dropout(F.relu(conv(x, ei)), p=self.dropout, training=self.training)
+        return self.classifier(x).squeeze(-1)
 
 
 class GraphSAGE(_BaseGNN):
