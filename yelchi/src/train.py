@@ -122,9 +122,9 @@ def run_single(model_name, mat_path, device, out_dir="yelchi/outputs",
     print_metrics(tm, f"Test metrics — {model_name}")
 
     os.makedirs(out_dir, exist_ok=True)
-    result = {"dataset": "yelchi", "model": model_name, "best_threshold": best_t,
+    result = {"dataset": "yelchi", "model": model_name, "seed": seed, "best_threshold": best_t,
               "valid_metrics": vm, "test_metrics": tm}
-    out_path = os.path.join(out_dir, f"metrics_{model_name}.json")
+    out_path = os.path.join(out_dir, f"metrics_{model_name}_seed{seed}.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
     print(f"[Save] {out_path}")
@@ -138,6 +138,7 @@ if __name__ == "__main__":
                             "cage_carerf", "cage_carerf_no_care", "cage_carerf_no_aux"])
     p.add_argument("--mat-path", default="yelchi/data/YelpChi.mat")
     p.add_argument("--epochs", type=int, default=200)
+    p.add_argument("--seed", type=int, default=42)
     args = p.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    run_single(args.model, args.mat_path, device, epochs=args.epochs)
+    run_single(args.model, args.mat_path, device, epochs=args.epochs, seed=args.seed)
