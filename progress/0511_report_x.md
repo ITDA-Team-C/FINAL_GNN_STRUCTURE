@@ -41,7 +41,7 @@
 **(c) Train/Valid/Test 분할** (서브그래프 샘플링 이후):
 - Train 64% (32,000) / Valid 16% (8,000) / Test 20% (10,000)
 - Stratified, `random_state=42`
-- 샘플 fraud_ratio: 11.16% (원본 13.22% 대비 -2.06%p, 규정 ±2%p 경계 내)
+- 샘플 fraud_ratio: 11.16% (원본 13.22% 대비 -2.06%p)
 
 **(d) Feature Engineering — Train-only fit (leakage-safe)**:
 - TF-IDF (max_features=50,000, ngram=(1,2), min_df=3, max_df=0.9) → 32,000 train 행에서만 fit

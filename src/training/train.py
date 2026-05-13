@@ -22,7 +22,8 @@ from src.models.baseline_graphsage import GraphSAGE
 from src.models.baseline_gat import GAT
 from src.models.losses import WeightedBCELoss, FocalLoss, AuxiliaryLoss
 
-set_seed(42)
+DEFAULT_SEED = 42
+set_seed(DEFAULT_SEED)
 
 
 def check_and_preprocess(config):
@@ -289,8 +290,10 @@ def evaluate(model, x, y, edge_index_dict, mask, device):
     return metrics, y_score, y_pred
 
 
-def train(model_name, config_path):
+def train(model_name, config_path, seed=DEFAULT_SEED):
     config = load_config(config_path)
+
+    set_seed(seed)
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -300,6 +303,7 @@ def train(model_name, config_path):
 
     print(f"[Train] 모델: {model_name.upper()}")
     print(f"[Device] {device}")
+    print(f"[Seed]   {seed}")
 
     check_and_preprocess(config)
 
@@ -454,22 +458,26 @@ def train(model_name, config_path):
 
     os.makedirs(output_dir, exist_ok=True)
 
-    model_path = os.path.join(output_dir, f"best_model_{model_name}.pt")
+    seed_suffix = f"_seed{seed}"
+    version_with_seed = f"{version}{seed_suffix}"
+
+    model_path = os.path.join(output_dir, f"best_model_{model_name}{seed_suffix}.pt")
     torch.save(best_model_state, model_path)
     print(f"\n[Save] {model_path}")
 
     metrics_dict = {
         "model": model_name,
+        "seed": seed,
         "best_threshold": best_threshold,
         "valid_metrics": valid_metrics,
         "test_metrics": test_metrics_thresholded,
     }
 
-    metrics_path = os.path.join(output_dir, f"metrics_{version}.json")
+    metrics_path = os.path.join(output_dir, f"metrics_{version_with_seed}.json")
     save_json(metrics_dict, metrics_path)
     print(f"[Save] {metrics_path}")
 
-    report_path = os.path.join(output_dir, f"report_{version}.html")
+    report_path = os.path.join(output_dir, f"report_{version_with_seed}.html")
     create_html_report(model_name, metrics_dict, report_path)
     print(f"[Save] {report_path}")
 
@@ -488,10 +496,12 @@ if __name__ == "__main__":
                             "cage_carerf_gnn",
                         ])
     parser.add_argument("--config", type=str, default="configs/default.yaml")
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED,
+                        help="Random seed for reproducibility (default: 42)")
     parser.add_argument("--skip-preprocessing", action="store_true",
                         help="Skip preprocessing and use existing data")
     parser.add_argument("--skip-graph", action="store_true",
                         help="Skip graph building and use existing edge_index_dict")
     args = parser.parse_args()
 
-    metrics = train(args.model, args.config)
+    metrics = train(args.model, args.config, seed=args.seed)

@@ -27,7 +27,13 @@ def calculate_metrics(
     metrics["macro_f1"] = f1_score(y_true, y_pred, average="macro", zero_division=0)
     metrics["precision"] = precision_score(y_true, y_pred, average="macro", zero_division=0)
     metrics["recall"] = recall_score(y_true, y_pred, average="macro", zero_division=0)
-    metrics["accuracy"] = np.mean(y_true == y_pred)
+    metrics["accuracy"] = float(np.mean(y_true == y_pred))
+
+    recall_pos = recall_score(y_true, y_pred, pos_label=1, zero_division=0)
+    recall_neg = recall_score(y_true, y_pred, pos_label=0, zero_division=0)
+    metrics["recall_pos"] = float(recall_pos)
+    metrics["recall_neg"] = float(recall_neg)
+    metrics["g_mean"] = float(np.sqrt(recall_pos * recall_neg))
 
     return metrics
 
