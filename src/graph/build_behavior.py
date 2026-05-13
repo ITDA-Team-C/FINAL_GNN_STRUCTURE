@@ -49,7 +49,7 @@ def _cosine_topk_chunked(X, top_k, sim_threshold, chunk_size=512):
     return out
 
 
-def build_behavior(df, top_k=5, sim_threshold=0.3, max_reviews_per_user=3, seed=42):
+def build_behavior(df, top_k=5, sim_threshold=0.3, max_reviews_per_user=3):
     print("[R-UserBehavior-R] user-level cosine top-k -> review pair edges...")
 
     user_ids, X = extract_user_behavior(df)
@@ -63,12 +63,11 @@ def build_behavior(df, top_k=5, sim_threshold=0.3, max_reviews_per_user=3, seed=
 
     df = df.reset_index(drop=True)
     df["__node_idx__"] = np.arange(len(df))
-    rng = np.random.default_rng(seed)
     user_to_node_idx = {}
     for uid, group in df.groupby("user_id"):
-        idxs = group["__node_idx__"].values
+        idxs = group.sort_values(by="__node_idx__")["__node_idx__"].values
         if len(idxs) > max_reviews_per_user:
-            idxs = rng.choice(idxs, size=max_reviews_per_user, replace=False)
+            idxs = idxs[:max_reviews_per_user]
         user_to_node_idx[uid] = idxs
 
     edges_src = []

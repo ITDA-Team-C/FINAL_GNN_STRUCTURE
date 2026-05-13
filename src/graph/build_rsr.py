@@ -24,7 +24,7 @@ def build_rsr(df):
             candidates = [idx_j for j, idx_j in enumerate(review_indices) if i != j]
 
             if len(candidates) > k:
-                candidates = np.random.choice(candidates, size=k, replace=False).tolist()
+                candidates = candidates[-k:]
 
             for idx_j in candidates:
                 edges_src.append(idx_i)

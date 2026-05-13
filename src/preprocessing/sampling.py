@@ -27,8 +27,6 @@ def add_temporal_features(df):
 def product_user_time_hybrid_sampling(df):
     print("[Sampling] Product-User-Time Hybrid Dense Sampling 시작...")
 
-    np.random.seed(CONFIG["random_state"])
-
     df = add_temporal_features(df)
 
     print(f"  총 데이터: {len(df)}")
@@ -39,19 +37,43 @@ def product_user_time_hybrid_sampling(df):
     prod_counts = df["prod_id"].value_counts()
     print(f"\n  [Product] 상위 10개 상품: {prod_counts.head(10).to_dict()}")
 
-    top_products = set(prod_counts.head(max(100, len(df) // 1000)).index)
-    print(f"  상위 Product 선택: {len(top_products)}")
-
     user_counts = df["user_id"].value_counts()
     print(f"\n  [User] 상위 10명 사용자: {user_counts.head(10).to_dict()}")
-
-    top_users = set(user_counts.head(max(100, len(df) // 1000)).index)
-    print(f"  활동량 많은 User 선택: {len(top_users)}")
 
     month_counts = df["year_month"].value_counts()
     print(f"\n  [Time] 상위 10개 월: {month_counts.head(10).to_dict()}")
 
-    top_months = set(month_counts.head(max(12, len(df) // 50000)).index)
+    def _union_size(head_pu, head_m):
+        tp = set(prod_counts.head(head_pu).index)
+        tu = set(user_counts.head(head_pu).index)
+        tm = set(month_counts.head(head_m).index)
+        return int(
+            (
+                df["prod_id"].isin(tp)
+                | df["user_id"].isin(tu)
+                | df["year_month"].isin(tm)
+            ).sum()
+        )
+
+    lo, hi = 1, max(2000, len(df) // 100)
+    best_head_pu = 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        head_m_mid = max(1, mid // 20)
+        if _union_size(mid, head_m_mid) <= CONFIG["max_nodes"]:
+            best_head_pu = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+
+    head_pu = best_head_pu
+    head_m = max(1, head_pu // 20)
+    top_products = set(prod_counts.head(head_pu).index)
+    top_users = set(user_counts.head(head_pu).index)
+    top_months = set(month_counts.head(head_m).index)
+    print(f"\n  [Threshold-Search] head_pu={head_pu}, head_m={head_m}")
+    print(f"  상위 Product 선택: {len(top_products)}")
+    print(f"  활동량 많은 User 선택: {len(top_users)}")
     print(f"  리뷰 집중 Month 선택: {len(top_months)}")
 
     product_mask = df["prod_id"].isin(top_products)
@@ -62,19 +84,11 @@ def product_user_time_hybrid_sampling(df):
 
     print(f"\n  Union (product OR user OR month): {len(sampled_df)}")
 
-    if len(sampled_df) > CONFIG["max_nodes"]:
-        print(f"  [Reduce] {len(sampled_df)} → {CONFIG['max_nodes']} (max_nodes 초과)")
-        sampled_df = sampled_df.sample(
-            n=CONFIG["max_nodes"],
-            random_state=CONFIG["random_state"]
-        )
-
-    if len(sampled_df) < CONFIG["min_nodes"]:
-        print(f"  [Expand] {len(sampled_df)} → {min(len(df), CONFIG['min_nodes'])}")
-        remaining = df[~df.index.isin(sampled_df.index)]
-        need = min(CONFIG["min_nodes"] - len(sampled_df), len(remaining))
-        extra = remaining.sample(n=need, random_state=CONFIG["random_state"])
-        sampled_df = pd.concat([sampled_df, extra]).drop_duplicates()
+    sampled_df = sampled_df.sort_values(
+        by=["prod_id", "user_id", "date"],
+        ascending=[True, True, True],
+        kind="mergesort",
+    )
 
     print(f"\n  최종 샘플: {len(sampled_df)}")
     print(f"  목표: {CONFIG['target_nodes']}, 범위: [{CONFIG['min_nodes']}, {CONFIG['max_nodes']}]")
