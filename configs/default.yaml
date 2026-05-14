@@ -81,6 +81,11 @@ baselines:
     num_layers: 3
     K: 3
     dropout: 0.3
+  tag:
+    hidden_dim: 128
+    num_layers: 3
+    K: 3
+    dropout: 0.3
 
 # CAGE-RF GNN specific (GPU optimized)
 cage_rf:

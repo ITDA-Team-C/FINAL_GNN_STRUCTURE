@@ -1,5 +1,15 @@
 """Run all 15 models with 5 random seeds (75 training runs total).
 
+Updated lineup:
+- Baselines (6): MLP / GCN / GAT / GraphSAGE / ChebConv / TAGConv
+- CAGE-RF family (4): Base / Skip (w/o CARE) / Refine (v9) / + CARE
+- CAGE-CareRF Lean (2): Lean-4 / Lean-5
+- Ablations (3): w/o Skip / w/o Gating / w/o Aux Loss
+- (+1 excluded from report: w/o Custom Relations — rule-violating)
+- `w/o CARE` ablation is now folded into `CAGE-RF Skip (w/o CARE)` to avoid duplication.
+- Lean-6 removed: was algorithmically identical to `w/o Gating` ablation.
+
+
 Each (model, seed) pair saves results to a distinct file with `_seed{N}` suffix,
 so all 80 outputs coexist in `outputs/`. After completion, summary printed and
 aggregated metrics (mean ± std across 5 seeds) printed per model.
@@ -30,16 +40,17 @@ PLAN = [
     ("baselines", "gat",              "configs/default.yaml",                "GAT"),
     ("baselines", "graphsage",        "configs/default.yaml",                "GraphSAGE"),
     ("baselines", "cheb",             "configs/default.yaml",                "ChebConv (baseline)"),
-    # B. CAGE-RF family
+    ("baselines", "tag",              "configs/default.yaml",                "TAGConv (baseline)"),
+    # B. CAGE-RF family (Skip variant also serves as the `w/o CARE` ablation)
     ("cage_rf",   "cage_rf_gnn_cheb", "configs/default.yaml",                "CAGE-RF Base"),
-    ("cage_rf",   "cage_rf_gnn_cheb", "configs/v8_skip.yaml",                "CAGE-RF Skip (v8)"),
+    ("cage_rf",   "cage_rf_gnn_cheb", "configs/v8_skip.yaml",                "CAGE-RF Skip (w/o CARE)"),
     ("cage_rf",   "cage_rf_gnn_cheb", "configs/v9_twostage.yaml",            "CAGE-RF Refine (v9)"),
     ("cage_rf",   "cage_rf_gnn_cheb", "configs/cage_rf_skip_care.yaml",      "CAGE-RF + CARE"),
     # C. CAGE-CareRF Lean variants (Lean-6 removed: identical to ablation_no_gating)
     ("carerf",    "cage_carerf_gnn",  "configs/cage_carerf_lean.yaml",       "CAGE-CareRF Lean-4"),
     ("carerf",    "cage_carerf_gnn",  "configs/cage_carerf_lean_5.yaml",     "CAGE-CareRF Lean-5"),
     # D. Ablations (base = full Lean-6 modules; FINAL = CAGE-RF + CARE)
-    ("ablation",  "cage_carerf_gnn",  "configs/ablation_no_care.yaml",       "w/o CARE filter"),
+    #    NOTE: `w/o CARE` is folded into "CAGE-RF Skip (w/o CARE)" above to avoid duplication.
     ("ablation",  "cage_carerf_gnn",  "configs/ablation_no_skip.yaml",       "w/o Skip"),
     ("ablation",  "cage_carerf_gnn",  "configs/ablation_no_gating.yaml",     "w/o Gating"),
     ("ablation",  "cage_carerf_gnn",  "configs/ablation_no_aux.yaml",        "w/o Aux Loss"),
