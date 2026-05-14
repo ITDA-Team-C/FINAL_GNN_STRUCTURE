@@ -1,4 +1,4 @@
-"""Run all 16 models with 5 random seeds (80 training runs total).
+"""Run all 15 models with 5 random seeds (75 training runs total).
 
 Each (model, seed) pair saves results to a distinct file with `_seed{N}` suffix,
 so all 80 outputs coexist in `outputs/`. After completion, summary printed and
@@ -29,16 +29,16 @@ PLAN = [
     ("baselines", "gcn",              "configs/default.yaml",                "GCN"),
     ("baselines", "gat",              "configs/default.yaml",                "GAT"),
     ("baselines", "graphsage",        "configs/default.yaml",                "GraphSAGE"),
+    ("baselines", "cheb",             "configs/default.yaml",                "ChebConv (baseline)"),
     # B. CAGE-RF family
     ("cage_rf",   "cage_rf_gnn_cheb", "configs/default.yaml",                "CAGE-RF Base"),
     ("cage_rf",   "cage_rf_gnn_cheb", "configs/v8_skip.yaml",                "CAGE-RF Skip (v8)"),
     ("cage_rf",   "cage_rf_gnn_cheb", "configs/v9_twostage.yaml",            "CAGE-RF Refine (v9)"),
     ("cage_rf",   "cage_rf_gnn_cheb", "configs/cage_rf_skip_care.yaml",      "CAGE-RF + CARE"),
-    # C. CAGE-CareRF FINAL candidates (3 Lean variants)
+    # C. CAGE-CareRF Lean variants (Lean-6 removed: identical to ablation_no_gating)
     ("carerf",    "cage_carerf_gnn",  "configs/cage_carerf_lean.yaml",       "CAGE-CareRF Lean-4"),
     ("carerf",    "cage_carerf_gnn",  "configs/cage_carerf_lean_5.yaml",     "CAGE-CareRF Lean-5"),
-    ("carerf",    "cage_carerf_gnn",  "configs/cage_carerf_lean_6.yaml",     "CAGE-CareRF Lean-6"),
-    # D. Ablations (base = Lean-6 with full modules)
+    # D. Ablations (base = full Lean-6 modules; FINAL = CAGE-RF + CARE)
     ("ablation",  "cage_carerf_gnn",  "configs/ablation_no_care.yaml",       "w/o CARE filter"),
     ("ablation",  "cage_carerf_gnn",  "configs/ablation_no_skip.yaml",       "w/o Skip"),
     ("ablation",  "cage_carerf_gnn",  "configs/ablation_no_gating.yaml",     "w/o Gating"),

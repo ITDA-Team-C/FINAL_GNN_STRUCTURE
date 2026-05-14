@@ -20,6 +20,7 @@ from src.models.baseline_mlp import MLP
 from src.models.baseline_gcn import GCN
 from src.models.baseline_graphsage import GraphSAGE
 from src.models.baseline_gat import GAT
+from src.models.baseline_cheb import ChebBaseline
 from src.models.losses import WeightedBCELoss, FocalLoss, AuxiliaryLoss
 
 DEFAULT_SEED = 42
@@ -121,6 +122,9 @@ def create_model(model_name, input_dim, config):
     elif model_name == "gat":
         cfg = config.get("baselines", {}).get("gat", {})
         return GAT(input_dim, hidden_dim=cfg.get("hidden_dim", 128), num_layers=cfg.get("num_layers", 3), num_heads=cfg.get("num_heads", 8), dropout=cfg.get("dropout", 0.3))
+    elif model_name == "cheb":
+        cfg = config.get("baselines", {}).get("cheb", {})
+        return ChebBaseline(input_dim, hidden_dim=cfg.get("hidden_dim", 128), num_layers=cfg.get("num_layers", 3), dropout=cfg.get("dropout", 0.3), K=cfg.get("K", 3))
     elif model_name.startswith("cage_rf_gnn"):
         import importlib
         try:
@@ -488,7 +492,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="cage_rf_gnn",
                         choices=[
-                            "mlp", "gcn", "graphsage", "gat",
+                            "mlp", "gcn", "graphsage", "gat", "cheb",
                             "cage_rf_gnn",
                             "cage_rf_gnn_sage", "cage_rf_gnn_gat", "cage_rf_gnn_gcn",
                             "cage_rf_gnn_graphconv", "cage_rf_gnn_cheb", "cage_rf_gnn_tag",
