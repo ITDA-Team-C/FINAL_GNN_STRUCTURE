@@ -1,4 +1,5 @@
 import os
+import hashlib
 import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -10,7 +11,13 @@ set_seed(42)
 
 CONFIG = {
     "processed_dir": "data/processed",
+    "interim_dir": "data/interim",
     "input_file": "sampled_reviews.csv",
+    # Text encoder: "sbert" (Option A: SBERT -> train-only SVD 128) or "tfidf"
+    # (original TF-IDF -> SVD 128). Override at runtime via env TEXT_ENCODER.
+    "text_encoder": os.environ.get("TEXT_ENCODER", "sbert"),
+    "sbert_model": os.environ.get("SBERT_MODEL", "all-MiniLM-L6-v2"),
+    "sbert_batch_size": 256,
     "tfidf_max_features": 50000,
     "tfidf_min_df": 3,
     "tfidf_max_df": 0.9,
@@ -30,7 +37,23 @@ def _train_mask(df):
 
 
 def extract_text_embedding(df):
-    print("[Feature] 텍스트 임베딩 (train-fit, valid/test transform-only)...")
+    """Dispatch on CONFIG['text_encoder'].
+
+    Both branches end with a train-only-fit TruncatedSVD -> 128 dims, so the
+    downstream pipeline (node features, build_relations[:, :128], CARE cosine,
+    model input_dim) is byte-for-byte unchanged. Only the text representation
+    fed into the SVD differs => clean apples-to-apples encoder ablation.
+    """
+    encoder = CONFIG["text_encoder"].lower()
+    if encoder == "tfidf":
+        return _extract_tfidf_svd(df)
+    if encoder == "sbert":
+        return _extract_sbert_svd(df)
+    raise ValueError(f"Unknown text_encoder: {encoder!r} (use 'sbert' or 'tfidf')")
+
+
+def _extract_tfidf_svd(df):
+    print("[Feature] 텍스트 임베딩 — TF-IDF (train-fit, valid/test transform-only)...")
 
     texts = df["text"].fillna("").values
     train_mask = _train_mask(df)
@@ -56,6 +79,84 @@ def extract_text_embedding(df):
     print(f"  Explained variance (train-fit basis): {svd.explained_variance_ratio_.sum():.4f}")
 
     return text_embeddings, vectorizer, svd
+
+
+def _row_ids(df):
+    """Stable per-row identity for cache invalidation."""
+    col = "review_id" if "review_id" in df.columns else None
+    ids = df[col].astype(str).values if col else np.arange(len(df)).astype(str)
+    return ids
+
+
+def _sbert_cache_path(model_name, df):
+    os.makedirs(CONFIG["interim_dir"], exist_ok=True)
+    ids = _row_ids(df)
+    key = hashlib.sha1(
+        (model_name + "|" + str(len(ids)) + "|" + ",".join(ids)).encode("utf-8")
+    ).hexdigest()[:16]
+    safe_model = model_name.replace("/", "_")
+    return os.path.join(CONFIG["interim_dir"], f"sbert_emb_{safe_model}_{key}.npy")
+
+
+def _encode_sbert(df):
+    """Frozen pretrained SBERT encoding of EVERY row (no fit, no finetune).
+
+    Deterministic + cached to data/interim so the 75x multi-seed runs reuse
+    one encoding pass. Leakage-safe: the encoder is pretrained and is never
+    fit/finetuned on any split; only the downstream SVD is train-only fit.
+    """
+    model_name = CONFIG["sbert_model"]
+    cache_path = _sbert_cache_path(model_name, df)
+    if os.path.exists(cache_path):
+        emb = np.load(cache_path)
+        print(f"  SBERT cache hit: {cache_path} {emb.shape}")
+        return emb
+
+    try:
+        import torch
+        from sentence_transformers import SentenceTransformer
+    except ImportError as e:
+        raise ImportError(
+            "sentence-transformers is required for text_encoder='sbert'. "
+            "Install: pip install sentence-transformers"
+        ) from e
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"  Loading SBERT '{model_name}' on {device} (frozen, no fit)...")
+    model = SentenceTransformer(model_name, device=device)
+
+    texts = df["text"].fillna("").astype(str).tolist()
+    with torch.no_grad():
+        emb = model.encode(
+            texts,
+            batch_size=CONFIG["sbert_batch_size"],
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+            show_progress_bar=True,
+        )
+    emb = np.asarray(emb, dtype=np.float32)
+    np.save(cache_path, emb)
+    print(f"  SBERT encoded {emb.shape}, cached -> {cache_path}")
+    return emb
+
+
+def _extract_sbert_svd(df):
+    print(f"[Feature] 텍스트 임베딩 — SBERT '{CONFIG['sbert_model']}' "
+          f"(frozen) -> SVD (train-only fit)...")
+
+    train_mask = _train_mask(df)
+    emb = _encode_sbert(df)  # (N, D), pretrained frozen — NOT fit on any split
+
+    n_comp = min(CONFIG["svd_components"], emb.shape[1] - 1)
+    if n_comp != CONFIG["svd_components"]:
+        print(f"  [Warn] SBERT dim {emb.shape[1]} < svd_components; using {n_comp}")
+    svd = TruncatedSVD(n_components=n_comp, random_state=CONFIG["random_state"])
+    svd.fit(emb[train_mask])
+    text_embeddings = svd.transform(emb)
+    print(f"  SVD fit on {int(train_mask.sum())} train rows. Final emb: {text_embeddings.shape}")
+    print(f"  Explained variance (train-fit basis): {svd.explained_variance_ratio_.sum():.4f}")
+
+    return text_embeddings, None, svd
 
 
 def extract_numeric_features(df):
@@ -132,13 +233,25 @@ def save_features(df, combined_features):
     df.to_csv(samples_path, index=False)
     print(f"[Save] {samples_path}")
 
+    encoder = CONFIG["text_encoder"].lower()
+    if encoder == "sbert":
+        fit_note = (
+            f"SBERT('{CONFIG['sbert_model']}') frozen — 어떤 split에도 fit/finetune 안 함 "
+            f"(사전학습 임베딩 캐시 동봉). SVD/StandardScaler는 split=='train' 행에서만 fit, "
+            f"그 외 transform-only."
+        )
+    else:
+        fit_note = "TF-IDF/SVD/StandardScaler 모두 split=='train' 행에서만 fit, 그 외 transform-only"
+
     meta = {
         "num_nodes": int(combined_features.shape[0]),
         "num_features": int(combined_features.shape[1]),
         "text_embedding_dim": int(CONFIG["svd_components"]),
         "numeric_features_dim": int(combined_features.shape[1] - CONFIG["svd_components"]),
+        "text_encoder": encoder,
+        "sbert_model": CONFIG["sbert_model"] if encoder == "sbert" else None,
         "fit_scope": "train_only",
-        "note": "TF-IDF/SVD/StandardScaler 모두 split=='train' 행에서만 fit, 그 외 transform-only",
+        "note": fit_note,
     }
     meta_path = os.path.join(CONFIG["processed_dir"], "feature_meta.json")
     save_json(meta, meta_path)
