@@ -92,7 +92,18 @@ def load_graph_data(config):
     print(f"[Data] Train: {train_mask.sum()} | Valid: {valid_mask.sum()} | Test: {test_mask.sum()}")
     print(f"[Data] Label 분포: {np.bincount(y.numpy())}")
 
-    return x, y, edge_index_dict, train_mask, valid_mask, test_mask, nodes_df
+    # Optional: text_raw.npy is present only for the *_proj encoder variants.
+    # When present, the model will be wrapped with TextProjectionWrapper to
+    # learn an end-to-end Linear(raw_dim -> 128) projection over this view.
+    text_raw_path = os.path.join(processed_dir, "text_raw.npy")
+    text_raw = None
+    if os.path.exists(text_raw_path):
+        raw_arr = np.load(text_raw_path)
+        text_raw = torch.FloatTensor(raw_arr)
+        print(f"[Data] text_raw.npy 발견: shape={tuple(text_raw.shape)} "
+              f"→ TextProjectionWrapper 활성화 예정")
+
+    return x, y, edge_index_dict, train_mask, valid_mask, test_mask, nodes_df, text_raw
 
 
 def create_model(model_name, input_dim, config):
@@ -315,7 +326,7 @@ def train(model_name, config_path, seed=DEFAULT_SEED):
 
     check_and_preprocess(config)
 
-    x, y, edge_index_dict, train_mask, valid_mask, test_mask, nodes_df = load_graph_data(config)
+    x, y, edge_index_dict, train_mask, valid_mask, test_mask, nodes_df, text_raw = load_graph_data(config)
 
     x = x.to(device)
     y = y.to(device)
@@ -323,8 +334,14 @@ def train(model_name, config_path, seed=DEFAULT_SEED):
     valid_mask = valid_mask.to(device)
     test_mask = test_mask.to(device)
     edge_index_dict = {k: v.to(device) for k, v in edge_index_dict.items()}
+    if text_raw is not None:
+        text_raw = text_raw.to(device)
 
     # Offline CARE filter (feature cosine top-k, label-free).
+    # Note: CARE uses the fixed features.npy view (text = train-only SVD-128)
+    # even for *_proj variants. The trainable Linear projection is a property
+    # of the model, not the neighbor filter, so CARE stays deterministic and
+    # label-free, matching the original design.
     care_cfg = config.get("care_filter", {})
     if care_cfg.get("enabled", False) and care_cfg.get("apply", "offline") == "offline":
         from src.filtering.care_neighbor_filter import filter_edge_index_dict
@@ -339,6 +356,30 @@ def train(model_name, config_path, seed=DEFAULT_SEED):
         )
 
     model = create_model(model_name, x.shape[1], config)
+
+    # Wrap with trainable Linear text projection iff text_raw.npy is present
+    # (TEXT_ENCODER=sbert_proj or concat_proj). The wrapper overwrites the
+    # first `proj_dim` columns of `x` with Linear(text_raw) at forward time;
+    # the numeric tail stays untouched, so the backbone's input shape and
+    # CARE's edge_index_dict are byte-for-byte unchanged.
+    if text_raw is not None:
+        from src.models.text_projection_wrapper import TextProjectionWrapper
+        proj_dim = 128  # must match svd_components in feature_engineering.py
+        if x.shape[1] < proj_dim:
+            raise RuntimeError(
+                f"x has {x.shape[1]} cols, expected at least {proj_dim} text dims. "
+                f"feature_engineering.py and TextProjectionWrapper disagree."
+            )
+        print(f"\n[TextProj] Wrapping model with Linear({text_raw.shape[1]} -> {proj_dim}); "
+              f"end-to-end trainable projection over text_raw.")
+        model = TextProjectionWrapper(
+            backbone=model,
+            text_raw=text_raw,
+            raw_dim=text_raw.shape[1],
+            proj_dim=proj_dim,
+            numeric_start=proj_dim,
+        )
+
     model = model.to(device)
 
     pos_weight = calculate_pos_weight(y, train_mask)

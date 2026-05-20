@@ -14,11 +14,21 @@ CONFIG = {
     "interim_dir": "data/interim",
     "input_file": "sampled_reviews.csv",
     # Text encoder, override at runtime via env TEXT_ENCODER:
-    #   "sbert"  — Option A: frozen SBERT -> train-only SVD 128
-    #   "tfidf"  — original TF-IDF -> train-only SVD 128
-    #   "concat" — TF-IDF->SVD128 ⊕ SBERT->SVD128, per-modality train-only
-    #              z-score, then a joint train-only SVD back to 128 (so the
-    #              downstream dim stays apples-to-apples with the two above).
+    #   "sbert"        — Option A: frozen SBERT -> train-only SVD 128
+    #   "tfidf"        — original TF-IDF -> train-only SVD 128
+    #   "concat"       — TF-IDF->SVD128 ⊕ SBERT->SVD128, per-modality train-only
+    #                    z-score, then a joint train-only SVD back to 128 (so the
+    #                    downstream dim stays apples-to-apples with the two above).
+    #   "sbert_proj"   — NEW: features.npy view = SBERT->SVD128 (same as 'sbert')
+    #                    PLUS text_raw.npy = frozen SBERT 384D z-scored. The model
+    #                    learns an end-to-end nn.Linear(384->128) projection on the
+    #                    raw view; relation building / CARE use the fixed SVD-128
+    #                    view unchanged.
+    #   "concat_proj"  — NEW: features.npy view = concat→joint SVD-128 (same as
+    #                    'concat') PLUS text_raw.npy = [SBERT 384 ⊕ TFIDF SVD128]
+    #                    each train-only z-scored. The model learns an end-to-end
+    #                    nn.Linear(512->128) projection on the raw view; relations
+    #                    / CARE see the fixed view unchanged.
     "text_encoder": os.environ.get("TEXT_ENCODER", "sbert"),
     "sbert_model": os.environ.get("SBERT_MODEL", "all-MiniLM-L6-v2"),
     "sbert_batch_size": 256,
@@ -43,21 +53,135 @@ def _train_mask(df):
 def extract_text_embedding(df):
     """Dispatch on CONFIG['text_encoder'].
 
-    Both branches end with a train-only-fit TruncatedSVD -> 128 dims, so the
-    downstream pipeline (node features, build_relations[:, :128], CARE cosine,
-    model input_dim) is byte-for-byte unchanged. Only the text representation
-    fed into the SVD differs => clean apples-to-apples encoder ablation.
+    All branches end with a train-only-fit TruncatedSVD -> 128 dims for the
+    features.npy view, so the downstream pipeline (build_relations[:, :128],
+    CARE cosine, model input_dim) is byte-for-byte unchanged.
+
+    The two *_proj variants additionally return a `text_raw` array which is
+    saved to text_raw.npy and consumed by the model wrapper to learn an
+    end-to-end nn.Linear projection.
+
+    Returns: (text_embeddings_128, vectorizer_or_None, svd, text_raw_or_None)
     """
     encoder = CONFIG["text_encoder"].lower()
     if encoder == "tfidf":
-        return _extract_tfidf_svd(df)
+        emb, vec, svd = _extract_tfidf_svd(df)
+        return emb, vec, svd, None
     if encoder == "sbert":
-        return _extract_sbert_svd(df)
+        emb, vec, svd = _extract_sbert_svd(df)
+        return emb, vec, svd, None
     if encoder == "concat":
-        return _extract_concat_svd(df)
+        emb, vec, svd = _extract_concat_svd(df)
+        return emb, vec, svd, None
+    if encoder == "sbert_proj":
+        return _extract_sbert_proj(df)
+    if encoder == "concat_proj":
+        return _extract_concat_proj(df)
     raise ValueError(
-        f"Unknown text_encoder: {encoder!r} (use 'sbert', 'tfidf' or 'concat')"
+        f"Unknown text_encoder: {encoder!r} "
+        f"(use 'sbert', 'tfidf', 'concat', 'sbert_proj' or 'concat_proj')"
     )
+
+
+def _extract_sbert_proj(df):
+    """Frozen SBERT raw + trainable Linear projection (learned in the model).
+
+    features.npy view:  SBERT(frozen) -> train-only SVD-128  (== Variant B)
+    text_raw.npy view:  SBERT(frozen) raw 384D, train-only z-scored
+
+    The model wrapper applies nn.Linear(384 -> 128) end-to-end on text_raw and
+    overwrites the first 128 dims of features.npy at forward time. The SVD-128
+    view persists only for relation building (semsim cosine) and CARE filter.
+
+    Leakage-safe: SBERT is pretrained and never fit; SVD and StandardScaler
+    are fit on split=='train' rows only.
+    """
+    print(f"[Feature] 텍스트 임베딩 — SBERT_PROJ "
+          f"(frozen SBERT '{CONFIG['sbert_model']}' + trainable Linear)...")
+
+    train_mask = _train_mask(df)
+    sbert_raw = _encode_sbert(df)  # (N, 384), frozen pretrained
+
+    n_comp = min(CONFIG["svd_components"], sbert_raw.shape[1] - 1)
+    svd = TruncatedSVD(n_components=n_comp, random_state=CONFIG["random_state"])
+    svd.fit(sbert_raw[train_mask])
+    text_embeddings = svd.transform(sbert_raw)
+    print(f"  features.npy view: SBERT→SVD{n_comp}, "
+          f"EVR={svd.explained_variance_ratio_.sum():.4f}")
+
+    sc_raw = StandardScaler().fit(sbert_raw[train_mask])
+    text_raw = sc_raw.transform(sbert_raw).astype(np.float32)
+    print(f"  text_raw.npy view: raw SBERT z-scored {text_raw.shape}")
+
+    return text_embeddings, None, svd, text_raw
+
+
+def _extract_concat_proj(df):
+    """Concat(SBERT raw, TF-IDF SVD-128) + trainable Linear projection.
+
+    features.npy view:  TF-IDF→SVD128 ⊕ SBERT→SVD128 → joint SVD-128 (== Variant C)
+    text_raw.npy view:  [frozen SBERT 384D (z), TF-IDF SVD-128 (z)] = 512D
+
+    The model wrapper applies nn.Linear(512 -> 128) end-to-end on text_raw, so
+    the projection can learn to weight SBERT semantic vs TF-IDF lexical signal.
+    Relation building / CARE see the fixed joint-SVD view unchanged.
+    """
+    print(f"[Feature] 텍스트 임베딩 — CONCAT_PROJ "
+          f"(frozen SBERT '{CONFIG['sbert_model']}' ⊕ TF-IDF + trainable Linear)...")
+
+    train_mask = _train_mask(df)
+    n_comp = CONFIG["svd_components"]
+
+    # --- TF-IDF block ---
+    texts = df["text"].fillna("").values
+    vectorizer = TfidfVectorizer(
+        max_features=CONFIG["tfidf_max_features"],
+        min_df=CONFIG["tfidf_min_df"],
+        max_df=CONFIG["tfidf_max_df"],
+        ngram_range=CONFIG["tfidf_ngram"],
+        lowercase=True,
+        token_pattern=r"\b\w+\b",
+    )
+    vectorizer.fit(texts[train_mask])
+    tfidf_matrix = vectorizer.transform(texts)
+    svd_tfidf = TruncatedSVD(n_components=n_comp, random_state=CONFIG["random_state"])
+    svd_tfidf.fit(tfidf_matrix[train_mask])
+    emb_tfidf = svd_tfidf.transform(tfidf_matrix)
+    print(f"  TF-IDF block: vocab={len(vectorizer.vocabulary_)}, "
+          f"SVD{n_comp} EVR={svd_tfidf.explained_variance_ratio_.sum():.4f}")
+
+    # --- SBERT block (raw + reduced) ---
+    sbert_raw = _encode_sbert(df)  # (N, 384), frozen pretrained
+    nb = min(n_comp, sbert_raw.shape[1] - 1)
+    svd_sbert = TruncatedSVD(n_components=nb, random_state=CONFIG["random_state"])
+    svd_sbert.fit(sbert_raw[train_mask])
+    emb_sbert = svd_sbert.transform(sbert_raw)
+    print(f"  SBERT block: dim={sbert_raw.shape[1]}, "
+          f"SVD{nb} EVR={svd_sbert.explained_variance_ratio_.sum():.4f}")
+
+    # --- features.npy view (== Variant C: joint SVD back to n_comp) ---
+    sc_a = StandardScaler().fit(emb_tfidf[train_mask])
+    sc_b = StandardScaler().fit(emb_sbert[train_mask])
+    fused = np.concatenate(
+        [sc_a.transform(emb_tfidf), sc_b.transform(emb_sbert)], axis=1
+    )
+    svd = TruncatedSVD(n_components=n_comp, random_state=CONFIG["random_state"])
+    svd.fit(fused[train_mask])
+    text_embeddings = svd.transform(fused)
+    print(f"  features.npy view: joint SVD{n_comp}, "
+          f"EVR={svd.explained_variance_ratio_.sum():.4f}")
+
+    # --- text_raw.npy view ([SBERT raw 384 (z), TF-IDF SVD-128 (z)]) ---
+    sc_raw_sbert = StandardScaler().fit(sbert_raw[train_mask])
+    sc_raw_tfidf = StandardScaler().fit(emb_tfidf[train_mask])
+    text_raw = np.concatenate(
+        [sc_raw_sbert.transform(sbert_raw), sc_raw_tfidf.transform(emb_tfidf)],
+        axis=1,
+    ).astype(np.float32)
+    print(f"  text_raw.npy view: [SBERT 384 (z), TF-IDF {n_comp} (z)] "
+          f"= {text_raw.shape}")
+
+    return text_embeddings, vectorizer, svd, text_raw
 
 
 def _extract_tfidf_svd(df):
@@ -294,7 +418,7 @@ def concatenate_features(text_emb, numeric_feat):
     return combined
 
 
-def save_features(df, combined_features):
+def save_features(df, combined_features, text_raw=None):
     os.makedirs(CONFIG["processed_dir"], exist_ok=True)
 
     x_path = os.path.join(CONFIG["processed_dir"], "features.npy")
@@ -304,6 +428,16 @@ def save_features(df, combined_features):
     samples_path = os.path.join(CONFIG["processed_dir"], "node_samples.csv")
     df.to_csv(samples_path, index=False)
     print(f"[Save] {samples_path}")
+
+    text_raw_path = os.path.join(CONFIG["processed_dir"], "text_raw.npy")
+    if text_raw is not None:
+        np.save(text_raw_path, text_raw.astype(np.float32))
+        print(f"[Save] {text_raw_path}  shape={text_raw.shape}")
+    elif os.path.exists(text_raw_path):
+        # Avoid stale text_raw.npy from a prior *_proj run polluting a
+        # non-proj encoder swap.
+        os.remove(text_raw_path)
+        print(f"[Clean] removed stale {text_raw_path}")
 
     encoder = CONFIG["text_encoder"].lower()
     if encoder == "sbert":
@@ -319,6 +453,22 @@ def save_features(df, combined_features):
             f"어떤 split에도 fit/finetune 안 함; TF-IDF/모든 SVD/StandardScaler는 "
             f"split=='train' 행에서만 fit, 그 외 transform-only."
         )
+    elif encoder == "sbert_proj":
+        fit_note = (
+            f"SBERT_PROJ: features.npy = SBERT('{CONFIG['sbert_model']}') frozen "
+            f"→ train-only SVD128 (relation building / CARE 용). text_raw.npy = "
+            f"frozen SBERT 384D + train-only z-score. 모델에서 nn.Linear(384→128) "
+            f"을 end-to-end 학습해 첫 128 dims를 덮어씀. SBERT 본체는 frozen, "
+            f"SVD/StandardScaler는 split=='train' 행에서만 fit."
+        )
+    elif encoder == "concat_proj":
+        fit_note = (
+            f"CONCAT_PROJ: features.npy = CONCAT(TF-IDF ⊕ SBERT frozen) → joint "
+            f"SVD128 (relation building / CARE 용). text_raw.npy = [frozen SBERT "
+            f"384D (z), TF-IDF SVD128 (z)] = 512D. 모델에서 nn.Linear(512→128)을 "
+            f"end-to-end 학습해 첫 128 dims를 덮어씀. SBERT 본체는 frozen, "
+            f"TF-IDF/SVD/StandardScaler는 split=='train' 행에서만 fit."
+        )
     else:
         fit_note = "TF-IDF/SVD/StandardScaler 모두 split=='train' 행에서만 fit, 그 외 transform-only"
 
@@ -329,11 +479,19 @@ def save_features(df, combined_features):
         "numeric_features_dim": int(combined_features.shape[1] - CONFIG["svd_components"]),
         "text_encoder": encoder,
         "sbert_model": (
-            CONFIG["sbert_model"] if encoder in ("sbert", "concat") else None
+            CONFIG["sbert_model"]
+            if encoder in ("sbert", "concat", "sbert_proj", "concat_proj")
+            else None
         ),
         "fit_scope": "train_only",
         "note": fit_note,
     }
+    if text_raw is not None:
+        meta["text_raw_dim"] = int(text_raw.shape[1])
+        meta["text_proj_dim"] = int(CONFIG["svd_components"])
+        meta["trainable_text_projection"] = True
+    else:
+        meta["trainable_text_projection"] = False
     meta_path = os.path.join(CONFIG["processed_dir"], "feature_meta.json")
     save_json(meta, meta_path)
     print(f"[Save] {meta_path}")
@@ -345,7 +503,7 @@ if __name__ == "__main__":
     assert "split" in df.columns, "sampled_reviews.csv must contain 'split' column (run sampling.py first)"
     assert (df["split"] == "train").sum() > 0, "No train rows found"
 
-    text_embeddings, vectorizer, svd = extract_text_embedding(df)
+    text_embeddings, vectorizer, svd, text_raw = extract_text_embedding(df)
     numeric_features = extract_numeric_features(df)
 
     train_mask = _train_mask(df)
@@ -354,6 +512,9 @@ if __name__ == "__main__":
     )
 
     combined_features = concatenate_features(text_norm, numeric_norm)
-    save_features(df, combined_features)
+    save_features(df, combined_features, text_raw=text_raw)
 
     print(f"\n[Done] Feature Engineering 완료. shape={combined_features.shape}")
+    if text_raw is not None:
+        print(f"        + text_raw.shape={text_raw.shape} "
+              f"(consumed by TextProjectionWrapper during training)")

@@ -1,20 +1,51 @@
-# CAGE-CareRF GNN — YelpZip 사기 리뷰 탐지 · **TF-IDF ⊕ SBERT concat 텍스트 인코더 변형**
+# CAGE-CareRF GNN — YelpZip 사기 리뷰 탐지 · **Frozen SBERT + Trainable Linear Projection 변형**
 
 > **CAGE-RF + CARE** — Camouflage-Aware Gated Edge Relation-Fusion GNN
-> ITDA Networking Day 2026 예선 코드 (Team C)
-> **FINAL backbone**: CAGE-RF + CARE — Test PR-AUC **0.4447 ± 0.0061** (TF-IDF 단독 인코더 기준, 15모델 중 1위)
+> ITDA Networking Day 2026 후속 실험 (Team C)
+> **FINAL backbone**: CAGE-RF + CARE — Test PR-AUC **0.4447 ± 0.0061** (원 FINAL, TF-IDF 단독 인코더 기준, 15모델 중 1위)
 
-> ### 🔖 이 repo의 정체성 — 인코더 fusion 변형 (concat **후**)
-> frozen-SBERT 단독이 TF-IDF 대비 PR-AUC에서 손해(주력 모델 −0.0135)였던 한계를,
-> **두 인코더를 합쳐** 보완하는 변형. `TEXT_ENCODER` 환경변수로 선택:
-> - **`concat`** (본 repo의 주제) — TF-IDF→SVD128 ⊕ frozen-SBERT→SVD128, 모달리티별 train-only z-score 후 concat(256) → **공동 train-only SVD 128**
-> - `sbert` — frozen SBERT → SVD 128 (concat 전 변형, 별도 repo `CARE-RF-GNN_With_BERT`)
-> - `tfidf` — 기존 TF-IDF → SVD 128 (원 FINAL 인코더)
+> ### 🔖 이 repo의 정체성 — Frozen SBERT + **학습 가능한 Linear projection**
+> 직전 변형(`concat`)이 frozen SBERT의 "도메인 미적응" 한계를 SVD-128 차원에서 통계적으로만 합쳤다면,
+> **이 repo는 그 위에 학습 가능한 `nn.Linear` 한 장**을 얹어 fraud loss 신호로 텍스트 표현을 직접 적응시킴.
+> SBERT 본체는 frozen 유지 → 라벨/텍스트 leakage 위험 없음, 단 projection만 end-to-end 학습.
 >
-> 셋 다 최종 128차원으로 끝나 downstream(그래프/CARE/모델)이 **byte-for-byte 동일** → 인코더만의 효과를 깨끗이 비교.
+> 두 가지 신규 인코더 변형을 5 seeds × CAGE-RF + CARE backbone으로 비교:
+> - **`sbert_proj`** — frozen SBERT 384D → 학습 가능 `Linear(384→128)`
+> - **`concat_proj`** — `[frozen SBERT 384D, TF-IDF SVD-128]` 512D → 학습 가능 `Linear(512→128)`
 >
-> **설계 의도**: TF-IDF의 도메인 변별 토큰(lexical 정밀도) + SBERT의 의미·동의어 표현을 결합해
-> 각 인코더 단독의 약점을 상호 보완. 공동 SVD로 차원을 128로 되돌려 기존 결과들과 apples-to-apples 유지.
+> 두 변형 모두 `features.npy`(SVD-128 ⊕ numeric-12 = 140D)는 직전 `sbert`/`concat` 변형과 **byte-for-byte 동일**.
+> Trainable projection은 `src/models/text_projection_wrapper.py`가 forward 시점에 `text_raw.npy`를
+> 받아 첫 128 dims를 덮어쓰는 방식 → build_relations / CARE filter / backbone 코드 무수정.
+>
+> **설계 의도**: frozen pretrained encoder의 "raw 신호"는 보존하면서, fraud GNN의 손실 신호로 텍스트→128
+> 사영을 직접 최적화. fine-tune 없이 leakage-safe하게 도메인 적응을 시도하는 가장 가벼운 layer.
+
+### 🚀 빠른 실행 (이 repo 핵심)
+
+```bash
+# 두 변형 × 5 seeds = 10회 학습. 변형마다 feature_engineering + build_relations 재실행 후 학습.
+python run_proj_experiments.py
+
+# 한 변형만, 더 적은 seed로
+python run_proj_experiments.py --only sbert_proj --seeds 7 42 123
+
+# 명령어 흐름만 미리 확인 (실행 X)
+python run_proj_experiments.py --dry-run
+```
+
+결과는 `outputs/proj_experiments/<variant>/metrics_seed{N}.json` 과 `summary.json`(mean ± std) 으로 정리됨.
+
+### 🧱 구현 요약
+
+| 컴포넌트 | 변경 사항 |
+|---|---|
+| `src/preprocessing/feature_engineering.py` | `_extract_sbert_proj`, `_extract_concat_proj` 추가. `features.npy`는 기존 `sbert`/`concat`와 동일하게 SVD-128 view 저장 + 새 `text_raw.npy` (raw view) 동봉 |
+| `src/models/text_projection_wrapper.py` (신규) | `Linear(raw_dim → 128)` 학습. forward에서 `x[:, :128] ← Linear(text_raw)` 로 덮어씀 |
+| `src/training/train.py` | `text_raw.npy` 자동 감지 → wrapper로 backbone 래핑. 미존재 시 기존 경로 그대로 |
+| `run_proj_experiments.py` (신규) | 변형별 전처리 재실행 + 5 seeds 학습 + 결과 태깅 launcher |
+
+> **Leakage-safe**: SBERT는 frozen, 모든 SVD/StandardScaler/TF-IDF는 train split에서만 fit. Trainable
+> projection은 fraud loss로만 학습되며 train 텍스트 외부 라벨/텍스트에 노출되지 않음.
 
 YelpZip 리뷰를 노드로 두고 6개 relation(기본 3 + 커스텀 3)으로 그래프를 구성한 뒤, CARE-GNN의 camouflage-resistant neighbor filtering + Skip GNN branch + Gated Relation Fusion + Auxiliary branch loss를 결합한 다중 관계 GNN.
 
