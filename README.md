@@ -174,12 +174,14 @@ threshold @ valid PR-curve F1-max → Test set 1회 평가
 .
 ├── src/
 │   ├── preprocessing/   load_yelpzip / label_convert / sampling / feature_engineering
+│   ├── sampling/        cascade_pipeline / hdbscan_stratified_split / grouped_stratified_split
 │   ├── graph/           build_{rur,rtr,rsr,burst,semsim,behavior,relations,relation_quality}
 │   ├── filtering/       care_neighbor_filter
 │   ├── models/          baseline_{mlp,gcn,gat,graphsage,cheb,tag} / cage_rf_gnn_cheb /
 │   │                    skip_cheb_branch / gated_relation_fusion / cage_carerf_gnn /
 │   │                    text_projection_wrapper / losses
-│   ├── training/        train / evaluate / threshold
+│   ├── training/        train / evaluate / threshold /
+│   │                    lgbm_stacking / stacked_ensemble / aggregate_final
 │   └── utils/           seed / io / metrics
 ├── configs/             default, v8_skip, v9_twostage, cage_rf_skip_care,
 │                        cage_carerf{,_lean,_lean_5}, ablation_no_{skip,gating,aux,custom}
@@ -248,7 +250,100 @@ threshold @ valid PR-curve F1-max → Test set 1회 평가
 
 ---
 
-## 10. 라이선스 / 팀
+## 10. 본선 확장 — Behavioral Stacking & Meta-Ensemble
+
+본 섹션은 본선 단계에서 추가된 *후속 실험* 으로, FINAL GNN 의 출력을 **트리 기반 학습기 3종 (LightGBM · XGBoost · CatBoost) 의 행동 피처 모델** 과 결합하여 한 단계 더 성능 마진을 짜내는 stacking 파이프라인이다. 위 1~5 섹션의 공식 FINAL 결과 (`PR-AUC 0.4439 ± 0.0152`) 는 변경되지 않는다.
+
+### 10-1. 누수 차단 — 모든 aggregate 는 train 만으로 계산
+
+```python
+# src/training/lgbm_stacking.py  (build_features)
+train_df = df.loc[train_mask].copy()
+user_agg = _user_aggregates(train_df)   # train 만 사용
+prod_agg = _prod_aggregates(train_df)   # train 만 사용
+# valid/test 행은 user_id / prod_id 로 *train aggregate* 만 조회
+# train 에 없던 user/prod 는 NaN → 0 + unseen_in_train 별도 flag
+```
+
+YelpZip fraud 탐지에서 흔히 보이는 `user_fraud_rate` / `prod_fraud_rate` 류의 **전역 집계 leakage** 를 구조적으로 차단. 본 파이프라인 결과는 hold-out test 에 대해 재현 가능한 수치임을 보장한다.
+
+### 10-2. 행동 피처 구성 (총 32개)
+
+| 그룹 | 피처 |
+|---|---|
+| **self** | rating, rating_is_extreme, text_len, n_words, n_exclaim, n_question, caps_ratio, avg_word_len, ttr, dow, month, year |
+| **user_agg** (train only) | n_reviews, rating_{mean,std}, rating_extreme_ratio, text_len_{mean,std}, unique_prods, review_per_prod, unseen_in_train |
+| **prod_agg** (train only) | n_reviews, rating_{mean,std,skew}, extreme_ratio, unique_users, review_per_user, unseen_in_train |
+| **burst** | 같은 prod 의 ±7일 윈도우 안의 리뷰 수 (binary-search O(N log N)) |
+| **relative** | rating − user_mean, rating − prod_mean, text_len − user_mean |
+
+### 10-3. 아키텍처 — 2-Level Stacking
+
+```text
+                   ┌─────────────────────────┐
+                   │  Behavioral Features    │
+                   │  (32 cols, train-only)  │
+                   └────────────┬────────────┘
+                                │
+        ┌───────────────┬───────┴───────┬───────────────┐
+        ▼               ▼               ▼               ▼
+   ┌────────┐     ┌──────────┐    ┌──────────┐    ┌────────┐
+   │ LGBM   │     │ XGBoost  │    │ CatBoost │    │  GNN   │ ← saved npy
+   │ Level1 │     │ Level1   │    │ Level1   │    │ FINAL  │
+   └───┬────┘     └────┬─────┘    └────┬─────┘    └───┬────┘
+       │               │               │               │
+       └───────────────┴────┬──────────┴───────────────┘
+                            ▼
+                  ┌──────────────────────┐
+                  │  Level-2 Meta-Learner│
+                  │  Logistic Regression │  ← valid 에서만 학습
+                  │   (4 prob inputs)    │
+                  └──────────┬───────────┘
+                             ▼
+                       Test PR-AUC / Macro-F1
+```
+
+- **Level 1**: 네 모델 각각 *독립* 학습. LGBM/XGB/Cat 은 같은 32D 행동 피처 사용, GNN 은 이미 학습된 5-seed 결과의 `probs_*_seed{N}.npy` 를 로드.
+- **Level 2**: Logistic Regression 메타 학습기가 `[lgbm_v, xgb_v, cat_v, gnn_v]` 4개 확률을 입력으로 받아 *valid 에서만* 학습 (test 한 번도 미접촉). 가중치는 base learner 별 신뢰도를 *피처 별로* 학습하므로 단순 weighted average 보다 정교.
+- **Alternate**: `--meta xgb` 옵션으로 얕은 XGBoost (max_depth=3) 메타 학습기 대안 제공.
+
+### 10-4. 실행
+
+```bash
+# 의존성 (한 번만)
+pip install lightgbm xgboost catboost hdbscan
+
+# (선행) FINAL GNN 5-seed 학습 — probs_*_seed{N}.npy 자동 저장
+python -m src.training.train --model cage_rf_gnn_cheb \
+    --config configs/cage_rf_skip_care.yaml --seed 42   # 42, 123, 2024, 7, 1234
+
+# 단순 weighted blend (LGBM only + GNN, 5 seeds)
+python -m src.training.lgbm_stacking --seed 42 \
+    --gnn-probs-valid outputs/benchmark/CHEB/probs_valid_seed42.npy \
+    --gnn-probs-test  outputs/benchmark/CHEB/probs_test_seed42.npy
+
+# Level-2 meta-ensemble (LGBM + XGB + Cat + GNN, 5 seeds)
+python -m src.training.stacked_ensemble --seed 42 \
+    --gnn-probs-valid outputs/benchmark/CHEB/probs_valid_seed42.npy \
+    --gnn-probs-test  outputs/benchmark/CHEB/probs_test_seed42.npy
+
+# 5-seed 통합 리포트 (GNN / LGBM-only / Blend / Meta 한 표)
+python -m src.training.aggregate_final
+```
+
+### 10-5. 보조 — Cascade Sampling Pipeline (`src/sampling/`)
+
+본선 단계 부수 산출물. 기존 *fraud-blind* hybrid sampling 대비 **자연스럽게 fraud 비율을 25%+ 로 끌어올리는** 3-stage 캐스케이드를 제공한다 (`src/preprocessing/sampling.py` CONFIG 의 `sampling_strategy` 로 선택):
+
+1. **`group_dense`** — fraud-density × log-activity 점수 상위 (user / prod / month) 그룹 선택
+2. **`cascade`** — (1) → HDBSCAN semantic 필터링 → R-U-R / burst window 기반 normal reseed (그래프 연결성 회복)
+3. 보조 분할 도구: `hdbscan_stratified_split` (의미 군집 + 라벨 동시 stratify), `grouped_stratified_split` (StratifiedGroupKFold, shuffle / time_ordered 모드)
+
+공식 FINAL 결과 (`PR-AUC 0.4439`) 는 기존 hybrid sampling 기준이며, 본 캐스케이드는 본선 분석·실험용으로 분리해 둔다.
+
+---
+
+## 11. 라이선스 / 팀
 
 ITDA Team UnivConcat — 2026 ITDA Networking Day 학술제 본선 제출용.
 외부 reference 라이브러리(CARE-GNN, PC-GNN, DGFraud)는 본 repo에 포함되지 않으며 각 원본 라이선스에 따른다.
