@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Relation GNN · 사기 리뷰 탐지 — 결과 정리</title>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#171a23; --panel2:#1d212c; --line:#2a2f3c;
+    --txt:#e7eaf0; --muted:#9aa3b2; --accent:#4f8cff; --accent2:#7c5cff;
+    --good:#37c98a; --warn:#f5a524; --bad:#f06363; --gray:#5b6373;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:"Pretendard","Segoe UI",-apple-system,system-ui,sans-serif;
+    line-height:1.6;font-size:15px;}
+  .wrap{max-width:1080px;margin:0 auto;padding:40px 24px 80px;}
+  header.hero{border:1px solid var(--line);border-radius:18px;
+    background:linear-gradient(135deg,#1a2030,#171a23);padding:34px 32px;margin-bottom:28px;}
+  .eyebrow{color:var(--accent);font-weight:700;letter-spacing:.04em;font-size:13px;text-transform:uppercase;}
+  h1{margin:8px 0 6px;font-size:28px;line-height:1.25;}
+  h2{margin:46px 0 14px;font-size:21px;border-left:4px solid var(--accent);padding-left:12px;}
+  h3{margin:26px 0 10px;font-size:16px;color:var(--txt);}
+  .sub{color:var(--muted);font-size:14px;}
+  .meta-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px;}
+  .chip{background:var(--panel2);border:1px solid var(--line);border-radius:999px;
+    padding:5px 13px;font-size:13px;color:var(--muted);}
+  .chip b{color:var(--txt);}
+  /* metric cards */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-top:8px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;}
+  .card .label{color:var(--muted);font-size:13px;margin-bottom:6px;}
+  .card .val{font-size:32px;font-weight:800;letter-spacing:-.5px;}
+  .card .std{color:var(--muted);font-size:13px;font-weight:600;}
+  .card.final{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset;}
+  /* table */
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:6px;}
+  th,td{padding:9px 10px;text-align:right;border-bottom:1px solid var(--line);}
+  th{color:var(--muted);font-weight:600;text-align:right;cursor:default;
+     position:sticky;top:0;background:var(--panel);}
+  th:first-child,td:first-child{text-align:left;}
+  tbody tr:hover{background:#1c2130;}
+  td.name{font-weight:600;}
+  .tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;vertical-align:middle;}
+  .t-final{background:rgba(79,140,255,.15);color:#8fb6ff;border:1px solid rgba(79,140,255,.4);}
+  .t-prop{background:rgba(124,92,255,.13);color:#b6a6ff;border:1px solid rgba(124,92,255,.35);}
+  .t-abl{background:rgba(245,165,36,.13);color:#f7c569;border:1px solid rgba(245,165,36,.32);}
+  .t-base{background:rgba(120,128,140,.15);color:#aab2c0;border:1px solid rgba(120,128,140,.32);}
+  .t-fail{background:rgba(240,99,99,.13);color:#f59191;border:1px solid rgba(240,99,99,.32);}
+  .bar{height:7px;border-radius:4px;background:var(--accent);display:inline-block;vertical-align:middle;}
+  tr.row-final td{background:rgba(79,140,255,.07);}
+  /* delta coloring */
+  .pos{color:var(--good);} .neg{color:var(--bad);} .neu{color:var(--muted);}
+  /* callout */
+  .note{background:var(--panel2);border:1px solid var(--line);border-left:4px solid var(--warn);
+    border-radius:10px;padding:16px 18px;margin:16px 0;font-size:14px;}
+  .note b{color:#f7c569;}
+  .note.good{border-left-color:var(--good);} .note.good b{color:var(--good);}
+  ul{margin:8px 0 8px;padding-left:20px;} li{margin:4px 0;}
+  .legend{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0 4px;font-size:12.5px;color:var(--muted);}
+  code{background:#11141d;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:12.5px;color:#c9d3e6;}
+  footer{margin-top:50px;color:var(--muted);font-size:12.5px;border-top:1px solid var(--line);padding-top:18px;}
+  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:12px;}
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media(max-width:720px){.twocol{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <div class="eyebrow">ITDA Networking Day 2026 · Team UnivConcat</div>
+    <h1>Multi-Relation GNN 기반 조직적 사기 리뷰 탐지<br>— 실험 결과 정리</h1>
+    <p class="sub">CAGE-RF + CARE · YelpZip 데이터셋 · 5-seed 평균±표준편차로 보고하는 학술 표준 프로토콜</p>
+    <div class="meta-grid">
+      <span class="chip">데이터셋 <b>YelpZip</b></span>
+      <span class="chip">노드 <b>47,125</b> (리뷰 608,458 → 샘플)</span>
+      <span class="chip">사기 비율 <b>11.16%</b> (불균형)</span>
+      <span class="chip">태스크 <b>이진 노드 분류</b></span>
+      <span class="chip">평가 <b>5 seeds</b> (7·42·123·2024·1234)</span>
+      <span class="chip">최종 config <b>cage_rf_gnn_cheb_cage_rf_skip_care</b></span>
+    </div>
+  </header>
+
+  <!-- ============ 1. 최종 모델 핵심 지표 ============ -->
+  <h2>1. 최종 모델 핵심 지표</h2>
+  <p class="sub">제안 시스템 <b>CAGE-RF + CARE</b> (6 relation × SkipChebBranch → Gated Relation Fusion + per-relation aux head, label-free CARE neighbor filter). 5-seed 평균±표준편차.</p>
+  <div class="cards">
+    <div class="card final">
+      <div class="label">PR-AUC</div>
+      <div class="val">0.789 <span class="std">± 0.003</span></div>
+    </div>
+    <div class="card final">
+      <div class="label">Macro-F1</div>
+      <div class="val">0.792 <span class="std">± 0.004</span></div>
+    </div>
+    <div class="card final">
+      <div class="label">G-Mean</div>
+      <div class="val">0.776 <span class="std">± 0.005</span></div>
+    </div>
+  </div>
+  <div class="note good">
+    <b>baseline 대비:</b> 최종 모델의 PR-AUC <b>0.789</b>는 가장 강한 표준 GNN baseline(GAT 0.734)보다
+    <b>+0.054 (상대 +7.4%)</b>, 그래프 구조를 쓰지 않는 MLP(0.633) 대비 <b>+0.156 (상대 +24.7%)</b> 높습니다.
+  </div>
+
+  <!-- ============ 2. 전체 17개 모델 비교 ============ -->
+  <h2>2. 전체 모델 비교 (17개 · PR-AUC 내림차순)</h2>
+  <div class="legend">
+    <span><span class="tag t-final">최종</span> 제출 시스템</span>
+    <span><span class="tag t-prop">변형</span> 제안 모델 변형</span>
+    <span><span class="tag t-abl">Ablation</span> 구성요소 제거</span>
+    <span><span class="tag t-base">Baseline</span> 표준 GNN/MLP</span>
+    <span><span class="tag t-fail">실패</span> 붕괴한 설정</span>
+  </div>
+  <div class="scroll">
+  <table id="tbl">
+    <thead>
+      <tr>
+        <th>모델</th><th>PR-AUC</th><th></th><th>Macro-F1</th><th>G-Mean</th><th>seeds</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  </div>
+  <p class="sub" style="margin-top:10px">표시는 평균값. 바 길이 = PR-AUC를 표 내 최댓값 기준 상대 스케일.</p>
+
+  <!-- ============ 3. Ablation 분석 ============ -->
+  <h2>3. Ablation — 어떤 구성요소가 성능을 만드는가</h2>
+  <p class="sub">최종 모델(PR-AUC 0.789)에서 구성요소를 하나씩 제거했을 때의 변화.</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>제거한 구성요소</th><th>PR-AUC</th><th>Δ PR-AUC</th><th>Macro-F1</th><th>G-Mean</th></tr></thead>
+    <tbody>
+      <tr><td class="name">(없음) 최종 모델</td><td>0.789</td><td class="neu">—</td><td>0.792</td><td>0.776</td></tr>
+      <tr><td class="name">− per-relation aux loss</td><td>0.739</td><td class="neg">−0.050</td><td>0.765</td><td>0.757</td></tr>
+      <tr><td class="name">− skip connection</td><td>0.782</td><td class="neg">−0.007</td><td>0.792</td><td>0.782</td></tr>
+      <tr><td class="name">− gating fusion</td><td>0.790</td><td class="pos">+0.001</td><td>0.790</td><td>0.781</td></tr>
+      <tr><td class="name">− custom relation</td><td>0.792</td><td class="pos">+0.003</td><td>0.797</td><td>0.777</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note">
+    <b>핵심 발견:</b> <b>per-relation auxiliary loss</b>가 가장 결정적인 모듈입니다 — 제거 시 PR-AUC가
+    <b>약 0.05 (0.79 → 0.74)</b>, Macro-F1이 0.028 떨어져 단일 요소 중 가장 큰 손실을 냅니다.
+    skip connection은 소폭(−0.007) 기여하고, gating·custom relation 제거는 표준편차(±0.002~0.004) 범위 내 변화(≈0)로
+    <b>이 데이터셋·설정에서는 성능 기여가 통계적으로 유의하지 않습니다.</b> (과장 없이 그대로 보고)
+  </div>
+
+  <!-- ============ 4. 인코더/프로젝션 study ============ -->
+  <h2>4. 텍스트 인코더 / 프로젝션 비교 (별도 실험)</h2>
+  <p class="sub">동일 GNN 백본에 텍스트 인코더 프로젝션만 바꾼 비교 (각 5 seeds). <b>ROC-AUC 포함.</b></p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>인코더(proj)</th><th>PR-AUC</th><th>Macro-F1</th><th>G-Mean</th><th>ROC-AUC</th></tr></thead>
+    <tbody>
+      <tr><td class="name">SBERT projection</td><td>0.766 <span class="std">±.005</span></td><td>0.781 <span class="std">±.002</span></td><td>0.764 <span class="std">±.011</span></td><td><b>0.890</b> <span class="std">±.002</span></td></tr>
+      <tr><td class="name">TF-IDF ⊕ SBERT concat projection</td><td>0.758 <span class="std">±.004</span></td><td>0.780 <span class="std">±.001</span></td><td><b>0.767</b> <span class="std">±.010</span></td><td>0.885 <span class="std">±.001</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note">
+    <b>해석(정직 버전):</b> 이 실험에서는 <b>SBERT projection</b>이 PR-AUC·ROC-AUC·Macro-F1에서 근소 우위,
+    <b>concat</b>이 G-Mean에서 근소 우위로 — 두 인코더 차이는 대부분 1~2 표준편차 이내라 <b>실질적으로 동급</b>입니다.
+    <br>⚠️ 이 표(PR-AUC ~0.76)는 2번 표(최종 ~0.79)와 <b>다른 런 설정</b>의 프로젝션 비교 실험이므로 절댓값을 직접 비교하지 마세요.
+    또한 이는 기존 정리 노트의 "concat이 두 지표 모두 단독 1위" 서술과 충돌하므로 <b>최종 인코더 선택 근거는 재확인이 필요</b>합니다.
+  </div>
+
+  <!-- ============ 5. 정직성 노트 ============ -->
+  <h2>5. 정직성 체크 (포트폴리오/면접용)</h2>
+  <ul>
+    <li><b>최종 모델은 PR-AUC 단독 1위가 아님:</b> ablation 변형(no_custom 0.792, no_gating 0.790)이 근소하게 더 높으나 모두 표준편차 범위 → "최고 성능"이 아니라 <b>"최상위권과 통계적 동급, 전 지표 균형이 가장 좋은 설정"</b>으로 서술하는 것이 정확합니다.</li>
+    <li><b>강한 주장 가능(근거 충분):</b> ① 표준 GNN baseline 대비 +7.4% PR-AUC, ② aux loss가 가장 결정적(−0.05) — 이 두 가지는 데이터로 명확히 뒷받침됩니다.</li>
+    <li><b>제거된 옛 수치:</b> 이전 노트의 "PR-AUC 0.44대 / +62% / aux −33% / ROC-AUC 0.823"은 현재 런에 근거가 없어 폐기. ROC-AUC는 4번 표 기준 <b>0.885~0.890</b>(인코더 study)만 인용 가능.</li>
+    <li><b>샘플링·split:</b> 64/16/20, seed42 기준(노트). 절대 수치 인용 시 "20% 샘플 / 5-seed" 조건을 함께 표기 권장.</li>
+  </ul>
+
+  <footer>
+    출처: <code>FINAL_GNN_STRUCTURE/multi_seed_summary.json</code> (17모델×5seed) ·
+    <code>FINAL_GNN_STRUCTURE/summary.json</code> (인코더 proj×5seed). 모든 수치는 원본 JSON 실측이며 새 수치를 만들지 않았습니다.<br>
+    생성: mlfolio Agent Team (경비대장) · 2026-06-20 · Repo: github.com/ITDA-Team-C/FINAL_GNN_STRUCTURE
+  </footer>
+
+</div>
+
+<script>
+const rows = [
+  {name:"최종: CAGE-RF + CARE (skip+cheb)", cat:"final", pr:0.7888, f1:0.7921, g:0.7765, s:5},
+  {name:"Ablation − custom relation 제거", cat:"abl", pr:0.7920, f1:0.7967, g:0.7770, s:5},
+  {name:"Ablation − gating 제거", cat:"abl", pr:0.7896, f1:0.7904, g:0.7810, s:5},
+  {name:"CAGE-CareRF lean v4", cat:"prop", pr:0.7883, f1:0.7938, g:0.7738, s:5},
+  {name:"CAGE-CareRF lean v5", cat:"prop", pr:0.7873, f1:0.7918, g:0.7742, s:5},
+  {name:"CAGE-RF Cheb v9 (2-stage)", cat:"prop", pr:0.7849, f1:0.7920, g:0.7757, s:5},
+  {name:"CAGE-RF Cheb v8 (skip)", cat:"prop", pr:0.7847, f1:0.7922, g:0.7785, s:5},
+  {name:"Ablation − skip 제거", cat:"abl", pr:0.7816, f1:0.7916, g:0.7817, s:5},
+  {name:"CAGE-RF Cheb v2", cat:"prop", pr:0.7798, f1:0.7889, g:0.7706, s:5},
+  {name:"Ablation − aux loss 제거", cat:"abl", pr:0.7389, f1:0.7645, g:0.7574, s:5},
+  {name:"GAT (baseline)", cat:"base", pr:0.7344, f1:0.7587, g:0.7335, s:5},
+  {name:"TAGCN (baseline)", cat:"base", pr:0.7335, f1:0.7550, g:0.7463, s:5},
+  {name:"GCN (baseline)", cat:"base", pr:0.7262, f1:0.7575, g:0.7295, s:5},
+  {name:"GraphSAGE (baseline)", cat:"base", pr:0.7234, f1:0.7508, g:0.7407, s:5},
+  {name:"ChebNet (baseline)", cat:"base", pr:0.7202, f1:0.7519, g:0.7340, s:5},
+  {name:"MLP (no graph, baseline)", cat:"base", pr:0.6327, f1:0.7138, g:0.6927, s:5},
+  {name:"CAGE-CareRF lean v5b (붕괴)", cat:"fail", pr:0.4282, f1:0.6610, g:0.5915, s:5},
+];
+const tagMap = {final:["t-final","최종"],prop:["t-prop","변형"],abl:["t-abl","Ablation"],base:["t-base","Baseline"],fail:["t-fail","실패"]};
+const maxPr = Math.max(...rows.map(r=>r.pr));
+const tb = document.getElementById("tbody");
+rows.forEach(r=>{
+  const [cls,lab] = tagMap[r.cat];
+  const w = Math.round(r.pr/maxPr*120);
+  const tr = document.createElement("tr");
+  if(r.cat==="final") tr.className="row-final";
+  tr.innerHTML =
+    `<td class="name">${r.name}<span class="tag ${cls}">${lab}</span></td>`+
+    `<td><b>${r.pr.toFixed(4)}</b></td>`+
+    `<td><span class="bar" style="width:${w}px"></span></td>`+
+    `<td>${r.f1.toFixed(4)}</td>`+
+    `<td>${r.g.toFixed(4)}</td>`+
+    `<td class="neu">${r.s}</td>`;
+  tb.appendChild(tr);
+});
+</script>
+</body>
+</html>
